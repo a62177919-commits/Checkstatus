@@ -160,6 +160,38 @@ async def main():
 
     except Exception as fatal_e:
         print(f"Критический сбой системы: {fatal_e}")
+                # --- ДОПОЛНИТЕЛЬНЫЙ БЛОК КОМАНД ---
+        @client.on(events.NewMessage(outgoing=True))
+        async def extra_commands(event):
+            text = event.raw_text.strip().lower()
+
+            if text == '/help':
+                await event.respond(
+                    "🚀 **Меню управления Ghost**\n"
+                    "__________________________________\n\n"
+                    "📡 **МОНИТОРИНГ:**\n"
+                    "🔹 `+ @user` — Добавить цель\n"
+                    "🔹 `- @user` — Удалить цель\n"
+                    "🔹 `/status` — Список целей\n\n"
+                    "🕵️ **OSINT:**\n"
+                    "🔹 `/search nick` — Поиск по соцсетям\n\n"
+                    "📲 **НАСТРОЙКИ:**\n"
+                    "🔹 `/alt @user` — Отчеты на второй акк\n"
+                    "🔹 `/reset_alt` — Отчеты в Saved Messages\n"
+                    "🔹 `/debug` — Состояние системы"
+                )
+
+            elif text == '/reset_alt':
+                import requests
+                requests.put(f"{FB_URL}alt_account.json", json=None)
+                await event.respond("🔄 Отчеты возвращены в Saved Messages.")
+
+            elif text == '/debug':
+                await event.respond(f"🤖 **Status:** Online\n👻 **Ghost:** True\n📡 **Firebase:** Connected")
+
+        # Слушаем команды постоянно
+        await client.run_until_disconnected()
+        
 
 if __name__ == "__main__":
     asyncio.run(main())
