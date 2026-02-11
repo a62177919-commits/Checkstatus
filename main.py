@@ -8,7 +8,6 @@ API_ID = int(os.getenv('TG_API_ID'))
 API_HASH = os.getenv('TG_API_HASH')
 FB_URL = "https://monitoring-5f98a-default-rtdb.firebaseio.com/"
 
-# Флаг вечного онлайна (в памяти скрипта)
 always_online = False
 
 async def main():
@@ -19,47 +18,56 @@ async def main():
     client = TelegramClient(StringSession(session_str), API_ID, API_HASH)
 
     async with client:
-        print("✅ Festka запущена с функцией Online!")
-        await client.send_message('me', "🚀 **Festka Online**\n\nНовые команды:\n`/online_on` — включить вечный онлайн\n`/online_off` — выключить")
+        print("✅ Festka запущена!")
+        # При запуске проверяем, есть ли альт-аккаунт в базе
+        alt_id = requests.get(f"{FB_URL}alt_account.json").json()
+        
+        # Определяем, куда слать сервисные сообщения (в избранное или на альт)
+        report_to = alt_id if alt_id else 'me'
+        await client.send_message(report_to, "🚀 **Festka Online Up**\n\nИспользуй `/alt @username` чтобы перенести уведомления сюда.")
 
-        # ОБРАБОТЧИК КОМАНД
         @client.on(events.NewMessage(chats='me'))
         async def handler(event):
             global always_online
             text = event.raw_text.strip().lower()
-            targets = requests.get(f"{FB_URL}targets.json").json() or {}
-            if not isinstance(targets, dict): targets = {}
             
-            # Управление вечным онлайном
-            if text == '/online_on':
+            # Настройка второго аккаунта
+            if text.startswith('/alt'):
+                target = text.replace('/alt', '').strip()
+                try:
+                    alt_entity = await client.get_entity(target)
+                    new_alt_id = alt_entity.id
+                    requests.put(f"{FB_URL}alt_account.json", json=new_alt_id)
+                    await event.respond(f"📲 Теперь уведомления будут приходить на ID: `{new_alt_id}`")
+                    await client.send_message(new_alt_id, "🔔 Теперь я буду присылать отчеты сюда!")
+                except Exception as e:
+                    await event.respond(f"❌ Не удалось найти юзера: {e}")
+
+            elif text == '/online_on':
                 always_online = True
-                await event.respond("🟢 Режим «Вечно в сети» ВКЛЮЧЕН.")
+                await event.respond("🟢 Вечный онлайн включен")
             elif text == '/online_off':
                 always_online = False
-                await event.respond("⚪ Режим «Вечно в сети» ВЫКЛЮЧЕН.")
+                await event.respond("⚪ Вечный онлайн выключен")
 
-            # Управление списком слежки
+            # Управление списком целей
             elif text.startswith('+'):
                 user = text.replace('+', '').strip().replace('@', '')
+                targets = requests.get(f"{FB_URL}targets.json").json() or {}
                 targets[user] = False
                 requests.put(f"{FB_URL}targets.json", json=targets)
-                await event.respond(f"✅ Теперь слежу за @{user}")
-            elif text.startswith('-'):
-                user = text.replace('-', '').strip().replace('@', '')
-                if user in targets:
-                    del targets[user]
-                    requests.put(f"{FB_URL}targets.json", json=targets)
-                    await event.respond(f"❌ Удалено: @{user}")
+                await event.respond(f"✅ Слежу за @{user}")
 
-        # ГЛАВНЫЙ ЦИКЛ (Мониторинг + Пинг онлайна)
-        counter = 0
+        # Цикл мониторинга
         while True:
-            # 1. Держим онлайн (каждые 40 секунд, если включено)
             if always_online:
                 await client(functions.account.UpdateStatusRequest(offline=False))
             
-            # 2. Проверяем цели (каждые 40 секунд)
+            # Проверяем цели и шлем уведомления
             targets = requests.get(f"{FB_URL}targets.json").json() or {}
+            current_alt = requests.get(f"{FB_URL}alt_account.json").json()
+            notify_chat = current_alt if current_alt else 'me'
+
             if isinstance(targets, dict):
                 for user, last_status in targets.items():
                     try:
@@ -67,12 +75,11 @@ async def main():
                         is_online = isinstance(u.status, UserStatusOnline)
                         if is_online != last_status:
                             icon = "🟢" if is_online else "🔴"
-                            status_txt = "в сети" if is_online else "вышел(а)"
-                            await client.send_message('me', f"{icon} @{user} теперь {status_txt}")
+                            msg = f"{icon} @{user} {'в сети' if is_online else 'вышел(а)'}"
+                            await client.send_message(notify_chat, msg)
                             targets[user] = is_online
                             requests.put(f"{FB_URL}targets.json", json=targets)
                     except: continue
-            
             await asyncio.sleep(40)
 
 asyncio.run(main())
