@@ -120,47 +120,7 @@ async def main():
             # --- ЦИКЛ МОНИТОРИНГА (GHOST MONITOR) ---
             while True:
                 try:
-                    # Обновление данных из FB
-                    targets = requests.get(f"{FB_URL}targets.json").json() or {}
-                    alt_id = requests.get(f"{FB_URL}alt_account.json").json()
-                    notify_to = alt_id if alt_id else 'me'
-
-                    if isinstance(targets, dict) and targets:
-                        for user, last_seen_status in targets.items():
-                            try:
-                                # Получаем статус без обновления своего онлайна
-                                user_req = await client(functions.users.GetUsersRequest(id=[user]))
-                                if not user_req: continue
-                                
-                                is_online = isinstance(user_req[0].status, types.UserStatusOnline)
-                                
-                                if is_online != last_seen_status:
-                                    icon = "🟢" if is_online else "🔴"
-                                    action = "в сети" if is_online else "вышел(а) из сети"
-                                    alert = f"{icon} **Уведомление:**\nОбъект @{user} теперь **{action}**."
-                                    
-                                    await client.send_message(notify_to, alert)
-                                    
-                                    # Синхронизация статуса в Firebase
-                                    targets[user] = is_online
-                                    requests.put(f"{FB_URL}targets.json", json=targets)
-                            except Exception as e:
-                                print(f"Ошибка парсинга {user}: {e}")
-                                continue
-
-                    # Поддержание режима призрака (принудительный оффлайн)
-                    await client(functions.account.UpdateStatusRequest(offline=True))
-                    
-                    # Интервал проверки (45 секунд для защиты от флуд-бана)
-                    await asyncio.sleep(45)
-                    
-                except Exception as loop_e:
-                    print(f"Loop Error: {loop_e}")
-                    await asyncio.sleep(30)
-
-    except Exception as fatal_e:
-        print(f"Критический сбой системы: {fatal_e}")
-               # --- ФОНОВЫЙ МОНИТОРИНГ ---
+                                # --- МОНИТОРИНГ В ФОНЕ (Заменяет старый while True) ---
             async def monitoring_loop():
                 while True:
                     try:
@@ -177,7 +137,7 @@ async def main():
                                     
                                     if is_online != last_seen_status:
                                         icon = "🟢" if is_online else "🔴"
-                                        action = "в сети" if is_online else "вышел(а) из сети"
+                                        action = "в сети" if is_online else "вышел(а)"
                                         await client.send_message(notify_to, f"{icon} Объект @{user} теперь **{action}**.")
                                         
                                         targets[user] = is_online
@@ -190,10 +150,10 @@ async def main():
                         print(f"Ошибка мониторинга: {e}")
                         await asyncio.sleep(30)
 
-            # Запуск цикла в фоне
+            # Запускаем фоновую задачу
             client.loop.create_task(monitoring_loop())
 
-            # --- ОБРАБОТЧИК КОМАНД ---
+            # --- ОБРАБОТЧИК КОМАНД (Должен быть ТУТ, а не в except) ---
             @client.on(events.NewMessage(outgoing=True))
             async def extra_commands(event):
                 text = event.raw_text.strip().lower()
@@ -205,7 +165,7 @@ async def main():
                     requests.put(f"{FB_URL}alt_account.json", json=None)
                     await event.respond("🔄 Отчеты возвращены в Saved Messages.")
 
-            print("✅ Все системы запущены параллельно!")
+            print("✅ Система полностью запущена!")
             await client.run_until_disconnected()
 
     except Exception as fatal_e:
@@ -213,7 +173,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-                                        
-if __name__ == "__main__":
-    asyncio.run(main())
-                                                        
+                    
