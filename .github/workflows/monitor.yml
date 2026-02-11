@@ -1,32 +1,16 @@
-name: TG_Session_Monitor
-
+name: TG_Monitor
 on:
-  workflow_dispatch: # Позволяет запускать скрипт вручную кнопкой в Actions
-  schedule:
-    - cron: '0 * * * *' # Автозапуск каждый час, чтобы сессия не "протухла"
-
+  workflow_dispatch: # Запуск кнопкой
 jobs:
-  run-monitor:
+  run:
     runs-on: ubuntu-latest
-    
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v3
-
-      - name: Setup Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.9'
-
-      - name: Install Dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install telethon
-
-      - name: Start Monitoring Session
+      - uses: actions/checkout@v3
+      - name: Install dependencies
+        run: pip install telethon requests
+      - name: Run
         env:
           TG_API_ID: ${{ secrets.TG_API_ID }}
           TG_API_HASH: ${{ secrets.TG_API_HASH }}
-          TG_SESSION_STRING: ${{ secrets.TG_SESSION_STRING }}
         run: python main.py
         
