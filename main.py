@@ -160,7 +160,7 @@ async def main():
 
     except Exception as fatal_e:
         print(f"Критический сбой системы: {fatal_e}")
-            # --- 1. ОТДЕЛЬНАЯ ФУНКЦИЯ МОНИТОРИНГА (ТЕПЕРЬ В ФОНЕ) ---
+               # --- ФОНОВЫЙ МОНИТОРИНГ ---
             async def monitoring_loop():
                 while True:
                     try:
@@ -171,7 +171,6 @@ async def main():
                         if isinstance(targets, dict) and targets:
                             for user, last_seen_status in targets.items():
                                 try:
-                                    # Тихий запрос статуса
                                     user_req = await client(functions.users.GetUsersRequest(id=[user]))
                                     if not user_req: continue
                                     is_online = isinstance(user_req[0].status, types.UserStatusOnline)
@@ -181,48 +180,32 @@ async def main():
                                         action = "в сети" if is_online else "вышел(а) из сети"
                                         await client.send_message(notify_to, f"{icon} Объект @{user} теперь **{action}**.")
                                         
-                                        # Обновляем статус в базе
                                         targets[user] = is_online
                                         requests.put(f"{FB_URL}targets.json", json=targets)
                                 except: continue
 
-                        # Поддерживаем режим призрака (offline)
                         await client(functions.account.UpdateStatusRequest(offline=True))
-                        await asyncio.sleep(45) # Защита от спама
+                        await asyncio.sleep(45)
                     except Exception as e:
-                        print(f"Ошибка в мониторинге: {e}")
+                        print(f"Ошибка мониторинга: {e}")
                         await asyncio.sleep(30)
 
-            # --- 2. ЗАПУСК ФОНОВОЙ ЗАДАЧИ ---
+            # Запуск цикла в фоне
             client.loop.create_task(monitoring_loop())
 
-            # --- 3. ОБРАБОТЧИК КОМАНД (ТЕПЕРЬ ВСЕГДА СЛУШАЕТ) ---
+            # --- ОБРАБОТЧИК КОМАНД ---
             @client.on(events.NewMessage(outgoing=True))
             async def extra_commands(event):
                 text = event.raw_text.strip().lower()
-
                 if text == '/help':
-                    await event.respond(
-                        "🚀 **Ghost Menu**\n"
-                        "__________________\n"
-                        "🔹 `+ @nick` — Слежка\n"
-                        "🔹 `- @nick` — Удалить\n"
-                        "🔹 `/status` — Список\n"
-                        "🔹 `/search` — OSINT\n"
-                        "🔹 `/alt @id` — Второй акк\n"
-                        "🔹 `/debug` — Проверка\n"
-                        "🔹 `/reset_alt` — Сброс"
-                    )
-
+                    await event.respond("🚀 **Ghost Menu**\n`+ @nick` | `- @nick` | `/status` | `/search` | `/alt` | `/debug` | `/reset_alt`")
                 elif text == '/debug':
-                    await event.respond("🤖 **System:** Online\n👻 **Ghost Mode:** Active")
-
+                    await event.respond(f"🤖 **Status:** Online\n👻 **Ghost:** True\n👤 **User:** {me.first_name}")
                 elif text == '/reset_alt':
                     requests.put(f"{FB_URL}alt_account.json", json=None)
                     await event.respond("🔄 Отчеты возвращены в Saved Messages.")
 
             print("✅ Все системы запущены параллельно!")
-            # Это заставляет бота работать бесконечно и слушать команды
             await client.run_until_disconnected()
 
     except Exception as fatal_e:
@@ -230,9 +213,7 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-                        
-        
-
+                                        
 if __name__ == "__main__":
     asyncio.run(main())
                                                         
