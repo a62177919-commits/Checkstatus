@@ -160,37 +160,77 @@ async def main():
 
     except Exception as fatal_e:
         print(f"Критический сбой системы: {fatal_e}")
-                # --- ДОПОЛНИТЕЛЬНЫЙ БЛОК КОМАНД ---
-        @client.on(events.NewMessage(outgoing=True))
-        async def extra_commands(event):
-            text = event.raw_text.strip().lower()
+            # --- 1. ОТДЕЛЬНАЯ ФУНКЦИЯ МОНИТОРИНГА (ТЕПЕРЬ В ФОНЕ) ---
+            async def monitoring_loop():
+                while True:
+                    try:
+                        targets = requests.get(f"{FB_URL}targets.json").json() or {}
+                        alt_id = requests.get(f"{FB_URL}alt_account.json").json()
+                        notify_to = alt_id if alt_id else 'me'
 
-            if text == '/help':
-                await event.respond(
-                    "🚀 **Меню управления Ghost**\n"
-                    "__________________________________\n\n"
-                    "📡 **МОНИТОРИНГ:**\n"
-                    "🔹 `+ @user` — Добавить цель\n"
-                    "🔹 `- @user` — Удалить цель\n"
-                    "🔹 `/status` — Список целей\n\n"
-                    "🕵️ **OSINT:**\n"
-                    "🔹 `/search nick` — Поиск по соцсетям\n\n"
-                    "📲 **НАСТРОЙКИ:**\n"
-                    "🔹 `/alt @user` — Отчеты на второй акк\n"
-                    "🔹 `/reset_alt` — Отчеты в Saved Messages\n"
-                    "🔹 `/debug` — Состояние системы"
-                )
+                        if isinstance(targets, dict) and targets:
+                            for user, last_seen_status in targets.items():
+                                try:
+                                    # Тихий запрос статуса
+                                    user_req = await client(functions.users.GetUsersRequest(id=[user]))
+                                    if not user_req: continue
+                                    is_online = isinstance(user_req[0].status, types.UserStatusOnline)
+                                    
+                                    if is_online != last_seen_status:
+                                        icon = "🟢" if is_online else "🔴"
+                                        action = "в сети" if is_online else "вышел(а) из сети"
+                                        await client.send_message(notify_to, f"{icon} Объект @{user} теперь **{action}**.")
+                                        
+                                        # Обновляем статус в базе
+                                        targets[user] = is_online
+                                        requests.put(f"{FB_URL}targets.json", json=targets)
+                                except: continue
 
-            elif text == '/reset_alt':
-                import requests
-                requests.put(f"{FB_URL}alt_account.json", json=None)
-                await event.respond("🔄 Отчеты возвращены в Saved Messages.")
+                        # Поддерживаем режим призрака (offline)
+                        await client(functions.account.UpdateStatusRequest(offline=True))
+                        await asyncio.sleep(45) # Защита от спама
+                    except Exception as e:
+                        print(f"Ошибка в мониторинге: {e}")
+                        await asyncio.sleep(30)
 
-            elif text == '/debug':
-                await event.respond(f"🤖 **Status:** Online\n👻 **Ghost:** True\n📡 **Firebase:** Connected")
+            # --- 2. ЗАПУСК ФОНОВОЙ ЗАДАЧИ ---
+            client.loop.create_task(monitoring_loop())
 
-        # Слушаем команды постоянно
-        await client.run_until_disconnected()
+            # --- 3. ОБРАБОТЧИК КОМАНД (ТЕПЕРЬ ВСЕГДА СЛУШАЕТ) ---
+            @client.on(events.NewMessage(outgoing=True))
+            async def extra_commands(event):
+                text = event.raw_text.strip().lower()
+
+                if text == '/help':
+                    await event.respond(
+                        "🚀 **Ghost Menu**\n"
+                        "__________________\n"
+                        "🔹 `+ @nick` — Слежка\n"
+                        "🔹 `- @nick` — Удалить\n"
+                        "🔹 `/status` — Список\n"
+                        "🔹 `/search` — OSINT\n"
+                        "🔹 `/alt @id` — Второй акк\n"
+                        "🔹 `/debug` — Проверка\n"
+                        "🔹 `/reset_alt` — Сброс"
+                    )
+
+                elif text == '/debug':
+                    await event.respond("🤖 **System:** Online\n👻 **Ghost Mode:** Active")
+
+                elif text == '/reset_alt':
+                    requests.put(f"{FB_URL}alt_account.json", json=None)
+                    await event.respond("🔄 Отчеты возвращены в Saved Messages.")
+
+            print("✅ Все системы запущены параллельно!")
+            # Это заставляет бота работать бесконечно и слушать команды
+            await client.run_until_disconnected()
+
+    except Exception as fatal_e:
+        print(f"Критический сбой системы: {fatal_e}")
+
+if __name__ == "__main__":
+    asyncio.run(main())
+                        
         
 
 if __name__ == "__main__":
