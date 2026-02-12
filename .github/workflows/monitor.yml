@@ -1,17 +1,16 @@
-name: Ghost Continuous Loop
+name: Ghost Monitor Loop
 
 on:
   push:
     branches: [ main ]
-  workflow_dispatch: # Позволяет запустить вручную
-  repository_dispatch: # Позволяет запускать через API (самозапуск)
-    types: [ restart_bot ]
+  schedule:
+    - cron: '0 */2 * * *' # Перезапуск каждые 2 часа (для страховки)
+  workflow_dispatch:
 
 jobs:
   run-ghost:
     runs-on: ubuntu-latest
-    # Ставим чуть больше 2 часов, чтобы скрипт успел сам себя перезапустить
-    timeout-minutes: 130 
+    timeout-minutes: 350 
 
     steps:
       - name: Checkout Code
@@ -23,31 +22,12 @@ jobs:
           python-version: '3.10'
 
       - name: Install Dependencies
-        run: pip install telethon requests
+        run: |
+          pip install telethon requests firebase-admin
 
-      - name: Run Engine & Self-Restart
+      - name: Run Engine
         env:
           TG_API_ID: ${{ secrets.TG_API_ID }}
           TG_API_HASH: ${{ secrets.TG_API_HASH }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          # 1. Запускаем бота в фоновом режиме
-          python main.py &
-          BOT_PID=$!
-          
-          echo "🚀 Бот запущен с PID $BOT_PID. Ждем 1 час 50 минут перед перезапуском..."
-          
-          # 2. Ждем 110 минут (1 час 50 минут)
-          sleep 6600
-          
-          echo "🔄 Время вышло. Отправляем сигнал на перезапуск..."
-          
-          # 3. Магия: заставляем GitHub запустить этот же воркфлоу заново
-          curl -X POST \
-            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-            -H "Accept: application/vnd.github.v3+json" \
-            https://api.github.com/repos/${{ github.repository }}/dispatches \
-            -d '{"event_type": "restart_bot"}'
-          
-          echo "✅ Сигнал отправлен. Убиваем текущего бота."
-          kill $BOT_PID
+        # Запускаем БЕЗ знака '&' в конце, чтобы видеть логи
+        run: python main.py
