@@ -1,16 +1,16 @@
-name: Ghost Monitor Loop
+name: Ghost Continuous Loop
 
 on:
   push:
     branches: [ main ]
-  schedule:
-    - cron: '0 */2 * * *' # Перезапуск каждые 2 часа (для страховки)
   workflow_dispatch:
+  repository_dispatch:
+    types: [ restart_bot ]
 
 jobs:
   run-ghost:
     runs-on: ubuntu-latest
-    timeout-minutes: 350 
+    timeout-minutes: 130 
 
     steps:
       - name: Checkout Code
@@ -25,9 +25,24 @@ jobs:
         run: |
           pip install telethon requests firebase-admin
 
-      - name: Run Engine
+      - name: Run Engine & Self-Restart
         env:
           TG_API_ID: ${{ secrets.TG_API_ID }}
           TG_API_HASH: ${{ secrets.TG_API_HASH }}
-        # Запускаем БЕЗ знака '&' в конце, чтобы видеть логи
-        run: python main.py
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Запускаем бота в фоне
+          python main.py &
+          BOT_PID=$!
+          
+          # Ждем 110 минут (1 час 50 мин)
+          sleep 6600
+          
+          # Перезапуск через API GitHub
+          curl -X POST \
+            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            https://api.github.com/repos/${{ github.repository }}/dispatches \
+            -d '{"event_type": "restart_bot"}'
+          
+          kill $BOT_PID
