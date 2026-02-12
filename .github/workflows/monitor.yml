@@ -4,13 +4,13 @@ on:
   push:
     branches: [ main ]
   schedule:
-    - cron: '0 */6 * * *' # Перезапуск каждые 6 часов (автоматически)
-  workflow_dispatch: # Кнопка ручного запуска
+    - cron: '0 */6 * * *' # Авто-рестарт каждые 6 часов
+  workflow_dispatch: # Кнопка для ручного запуска
 
 jobs:
   run-ghost:
     runs-on: ubuntu-latest
-    timeout-minutes: 350 # Разрешаем работать почти 6 часов (максимум для GitHub)
+    timeout-minutes: 350 # Лимит GitHub (почти 6 часов)
 
     steps:
       - name: Checkout Code
@@ -22,13 +22,15 @@ jobs:
           python-version: '3.10'
 
       - name: Install Dependencies
-        run: pip install telethon requests
+        run: |
+          python -m pip install --upgrade pip
+          pip install telethon requests
 
-      - name: Execute Script
+      - name: Execute Engine
         env:
           TG_API_ID: ${{ secrets.TG_API_ID }}
           TG_API_HASH: ${{ secrets.TG_API_HASH }}
-        # Используем конструкцию, которая не дает процессу завершиться преждевременно
+        # Конструкция '|| true' гарантирует, что шаг не пометится крестом при плановой остановке
         run: |
-          echo "🚀 Запуск мониторинга..."
-          python main.py
+          echo "🚀 Starting Ghost System..."
+          python main.py || true
