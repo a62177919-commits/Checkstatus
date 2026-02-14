@@ -44,15 +44,15 @@ class GhostBot:
     def __init__(self):
         self.client = None
         self.start_time = time.time()
-        self.version = "3.6.1-Fixed"
+        self.version = "3.6.2-Fixed-SDK"
         self.is_running = True
         self._init_firebase()
 
     def _init_firebase(self):
-        """Исправленная инициализация для публичной базы данных"""
+        """Инициализация Firebase без локального файла ключа"""
         if not firebase_admin._apps:
-            # Использование None вместо Anonymous исправляет ошибку на скриншоте
-            firebase_admin.initialize_app(None, {'databaseURL': FB_URL})
+            # Для публичных БД инициализируем без явных креденшалов
+            firebase_admin.initialize_app(options={'databaseURL': FB_URL})
         self.db_ref = db.reference("/")
 
     async def get_target_entity(self, username):
@@ -63,15 +63,15 @@ class GhostBot:
 
     async def initialize(self):
         print(f"📡 Инициализация Ghost Engine v{self.version}...")
-        # Читаем сессию напрямую из корня базы
         try:
+            # Прямое чтение строки сессии из Firebase
             session_data = self.db_ref.child("session").get()
         except Exception as e:
             print(f"❌ Ошибка доступа к Firebase: {e}")
             return False
         
         if not session_data:
-            print("❌ Ошибка: Сессия не найдена в Firebase.")
+            print("❌ Ошибка: Сессия не найдена в Firebase по пути /session.")
             return False
 
         self.client = TelegramClient(StringSession(session_data), API_ID, API_HASH)
@@ -80,19 +80,19 @@ class GhostBot:
     async def run(self):
         await self.client.connect()
         if not await self.client.is_user_authorized():
-            print("❌ Ошибка: Клиент не авторизован.")
+            print("❌ Ошибка: Сессия невалидна. Перегенерируй StringSession.")
             return
 
         me = await self.client.get_me()
         print(f"💎 Авторизовано: {me.first_name} (@{me.username})")
 
-        # Ghost Mode: Offline статус
+        # Ghost Mode: Принудительный Offline
         await self.client(functions.account.UpdateStatusRequest(offline=True))
 
         boot_msg = (
             f"💠 **Festka Ghost System v{self.version}**\n"
             f"⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯\n"
-            f"✅ **Статус:** Исправлен и запущен\n"
+            f"✅ **Статус:** Запущено успешно\n"
             f"🕒 **Время:** {datetime.now().strftime('%H:%M:%S')}\n"
             f"🛡 **Ghost Mode:** Active"
         )
@@ -108,6 +108,7 @@ class GhostBot:
             raw_text = event.raw_text.strip()
             text = raw_text.lower()
 
+            # --- КОМАНДА ПОМОЩИ ---
             if text == '/help':
                 help_text = (
                     "🔳 **Festka Ghost Control Panel**\n"
@@ -121,10 +122,11 @@ class GhostBot:
                     "⚙️ **Система:**\n"
                     "📲 `/alt @nick` — Вывод на второй акк\n"
                     "🔄 `/reset_alt` — Вывод в Saved\n"
-                    "🤖 `/debug` — Диагностика"
+                    "🤖 `/debug` — Диагностика бота"
                 )
                 await event.edit(help_text)
 
+            # --- КОМАНДА SHERLOCK ---
             elif text.startswith('/search'):
                 nick = raw_text.split(' ', 1)[1].replace('@', '') if ' ' in raw_text else None
                 if not nick: return await event.edit("⚠️ Формат: `/search nick`")
@@ -138,25 +140,29 @@ class GhostBot:
                     except: continue
                 await event.respond(f"🔎 **Результаты `{nick}`:**\n" + ("\n".join(found) if found else "❌ Пусто"))
 
+            # --- ДОБАВЛЕНИЕ ОБЪЕКТА ---
             elif text.startswith('+'):
                 target = text.replace('+', '').strip().replace('@', '')
                 entity = await self.get_target_entity(target)
                 if entity:
                     self.db_ref.child(f"targets/{target}").set(False)
-                    await event.respond(f"✅ **@{target}** добавлен.")
+                    await event.respond(f"✅ **@{target}** добавлен в мониторинг.")
                 else:
                     await event.respond(f"❌ @{target} не найден.")
 
+            # --- УДАЛЕНИЕ ОБЪЕКТА ---
             elif text.startswith('-'):
                 target = text.replace('-', '').strip().replace('@', '')
                 self.db_ref.child(f"targets/{target}").delete()
                 await event.respond(f"🗑 **@{target}** удален.")
 
+            # --- СТАТУС ЦЕЛЕЙ ---
             elif text == '/status':
                 db_data = self.db_ref.child("targets").get() or {}
                 msg = "📋 **Цели:**\n" + "\n".join([f"• @{t}" for t in db_data.keys()])
                 await event.respond(msg)
 
+            # --- АЛЬТЕРНАТИВНЫЙ АККАУНТ ---
             elif text.startswith('/alt'):
                 alt_username = text.replace('/alt', '').strip().replace('@', '')
                 alt_ent = await self.get_target_entity(alt_username)
@@ -164,13 +170,15 @@ class GhostBot:
                     self.db_ref.child("alt_account").set(alt_ent.id)
                     await event.respond(f"📲 Альт привязан: `{alt_ent.id}`")
 
+            # --- СБРОС АЛЬТА ---
             elif text == '/reset_alt':
                 self.db_ref.child("alt_account").delete()
                 await event.respond("🔄 Сброшено в Saved Messages.")
 
+            # --- ДИАГНОСТИКА ---
             elif text == '/debug':
                 uptime = time.time() - self.start_time
-                await event.respond(f"🤖 **Ghost Debug**\nUptime: {int(uptime//60)}m\nFirebase: Fixed")
+                await event.respond(f"🤖 **Ghost Debug**\nUptime: {int(uptime//60)}m\nFirebase: Connected")
 
     async def monitoring_loop(self):
         while self.is_running:
@@ -197,7 +205,7 @@ class GhostBot:
                         except: continue
 
                 await self.client(functions.account.UpdateStatusRequest(offline=True))
-                await asyncio.sleep(40)
+                await asyncio.sleep(45)
             except:
                 await asyncio.sleep(60)
 
