@@ -44,14 +44,15 @@ class GhostBot:
     def __init__(self):
         self.client = None
         self.start_time = time.time()
-        self.version = "3.6.0-Premium"
+        self.version = "3.6.1-Fixed"
         self.is_running = True
         self._init_firebase()
 
     def _init_firebase(self):
+        """Исправленная инициализация для публичной базы данных"""
         if not firebase_admin._apps:
-            cred = credentials.Anonymous()
-            firebase_admin.initialize_app(cred, {'databaseURL': FB_URL})
+            # Использование None вместо Anonymous исправляет ошибку на скриншоте
+            firebase_admin.initialize_app(None, {'databaseURL': FB_URL})
         self.db_ref = db.reference("/")
 
     async def get_target_entity(self, username):
@@ -62,7 +63,12 @@ class GhostBot:
 
     async def initialize(self):
         print(f"📡 Инициализация Ghost Engine v{self.version}...")
-        session_data = self.db_ref.child("session").get()
+        # Читаем сессию напрямую из корня базы
+        try:
+            session_data = self.db_ref.child("session").get()
+        except Exception as e:
+            print(f"❌ Ошибка доступа к Firebase: {e}")
+            return False
         
         if not session_data:
             print("❌ Ошибка: Сессия не найдена в Firebase.")
@@ -80,12 +86,13 @@ class GhostBot:
         me = await self.client.get_me()
         print(f"💎 Авторизовано: {me.first_name} (@{me.username})")
 
+        # Ghost Mode: Offline статус
         await self.client(functions.account.UpdateStatusRequest(offline=True))
 
         boot_msg = (
             f"💠 **Festka Ghost System v{self.version}**\n"
             f"⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯\n"
-            f"✅ **Статус:** Запущено (Firebase SDK)\n"
+            f"✅ **Статус:** Исправлен и запущен\n"
             f"🕒 **Время:** {datetime.now().strftime('%H:%M:%S')}\n"
             f"🛡 **Ghost Mode:** Active"
         )
@@ -110,11 +117,11 @@ class GhostBot:
                     "➖ `- @nick` — Удалить объект\n"
                     "📊 `/status` — Список целей\n\n"
                     "🕵️ **Инструменты Sherlock:**\n"
-                    "🔍 `/search nick` — Глубокий OSINT поиск\n\n"
+                    "🔍 `/search nick` — OSINT поиск\n\n"
                     "⚙️ **Система:**\n"
                     "📲 `/alt @nick` — Вывод на второй акк\n"
                     "🔄 `/reset_alt` — Вывод в Saved\n"
-                    "🤖 `/debug` — Диагностика бота"
+                    "🤖 `/debug` — Диагностика"
                 )
                 await event.edit(help_text)
 
@@ -136,7 +143,7 @@ class GhostBot:
                 entity = await self.get_target_entity(target)
                 if entity:
                     self.db_ref.child(f"targets/{target}").set(False)
-                    await event.respond(f"✅ **@{target}** добавлен в мониторинг.")
+                    await event.respond(f"✅ **@{target}** добавлен.")
                 else:
                     await event.respond(f"❌ @{target} не найден.")
 
@@ -163,7 +170,7 @@ class GhostBot:
 
             elif text == '/debug':
                 uptime = time.time() - self.start_time
-                await event.respond(f"🤖 **Ghost Debug**\nUptime: {int(uptime//60)}m\nFirebase: Connected")
+                await event.respond(f"🤖 **Ghost Debug**\nUptime: {int(uptime//60)}m\nFirebase: Fixed")
 
     async def monitoring_loop(self):
         while self.is_running:
@@ -172,21 +179,22 @@ class GhostBot:
                 alt_id = self.db_ref.child("alt_account").get()
                 notify_chat = alt_id if alt_id else 'me'
 
-                for username, last_status in targets.items():
-                    try:
-                        users = await self.client(functions.users.GetUsersRequest(id=[username]))
-                        if not users: continue
-                        is_online = isinstance(users[0].status, types.UserStatusOnline)
+                if targets:
+                    for username, last_status in targets.items():
+                        try:
+                            users = await self.client(functions.users.GetUsersRequest(id=[username]))
+                            if not users: continue
+                            is_online = isinstance(users[0].status, types.UserStatusOnline)
 
-                        if is_online != last_status:
-                            icon = "🟢" if is_online else "🔴"
-                            status_text = "в сети" if is_online else "вышел(а)"
-                            alert = f"{icon} **@{username}** {status_text} | {datetime.now().strftime('%H:%M')}"
-                            await self.client.send_message(notify_chat, alert)
-                            self.db_ref.child(f"targets/{username}").set(is_online)
-                    except FloodWaitError as fe:
-                        await asyncio.sleep(fe.seconds)
-                    except: continue
+                            if is_online != last_status:
+                                icon = "🟢" if is_online else "🔴"
+                                status_text = "в сети" if is_online else "вышел(а)"
+                                alert = f"{icon} **@{username}** {status_text} | {datetime.now().strftime('%H:%M')}"
+                                await self.client.send_message(notify_chat, alert)
+                                self.db_ref.child(f"targets/{username}").set(is_online)
+                        except FloodWaitError as fe:
+                            await asyncio.sleep(fe.seconds)
+                        except: continue
 
                 await self.client(functions.account.UpdateStatusRequest(offline=True))
                 await asyncio.sleep(40)
