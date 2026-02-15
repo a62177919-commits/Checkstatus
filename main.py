@@ -4,20 +4,19 @@ import logging
 import time
 import platform
 import random
-import json
 import firebase_admin
 from firebase_admin import credentials, db
 from datetime import datetime, timedelta
 from telethon import TelegramClient, events, functions, types
 from telethon.sessions import StringSession
-from telethon.errors import FloodWaitError, SessionPasswordNeededError
+from telethon.errors import FloodWaitError
 
 # ---- КОНФИГУРАЦИЯ СИСТЕМЫ ----
 API_ID = 34126767
 API_HASH = "44f1cdcc4c6544d60fe06be1b319d2dd"
-DATABASE_URL = "https://bots-bec89-default-rtdb.firebaseio.com/"
+DB_URL = "https://bots-bec89-default-rtdb.firebaseio.com/"
 
-# Словари для OSINT и расширенных функций
+# ---- ГЛОБАЛЬНЫЕ ДАННЫЕ (OSINT & TOOLS) ----
 NETWORKS = {
     "Instagram": "https://instagram.com/{}",
     "TikTok": "https://tiktok.com/@{}",
@@ -26,7 +25,7 @@ NETWORKS = {
     "Twitter": "https://twitter.com/{}",
     "Reddit": "https://reddit.com/user/{}",
     "YouTube": "https://youtube.com/@{}",
-    "Pinterest": "https://pinterest.com/{}"
+    "Steam": "https://steamcommunity.com/id/{}"
 }
 
 # ---- ИНИЦИАЛИЗАЦИЯ ----
@@ -36,53 +35,55 @@ logger = logging.getLogger("FestkaPremium")
 class FestkaPremium:
     def __init__(self):
         self.client = None
-        self.uptime_start = time.time()
-        self.version = "7.2.0-Ultimate"
-        self.is_active = True
-        self.total_checks = 0
-        self.notifications_sent = 0
+        self.start_time = time.time()
+        self.version = "8.4.1-Stable"
+        self.is_running = True
+        self.checks_performed = 0
+        self.events_logged = 0
         self._init_firebase()
 
     def _init_firebase(self):
-        """Категория: База данных"""
+        """(Категория: База данных)"""
         if not firebase_admin._apps:
             try:
-                firebase_admin.initialize_app(options={'databaseURL': DATABASE_URL})
-                logger.info("Firebase Integration: SUCCESS")
+                # Исправление ошибки из скриншота
+                firebase_admin.initialize_app(options={'databaseURL': DB_URL})
+                logger.info("Firebase: Connected Successfully")
             except Exception as e:
-                logger.error(f"Firebase Integration: FAILED - {e}")
-        self.db_root = db.reference("/")
+                logger.error(f"Firebase: Connection Failed - {e}")
+        self.db = db.reference("/")
 
-    # ---- ДИЗАЙН (UI/UX) ----
-    def _generate_border(self, char="━", length=30):
-        return char * length
+    # -[span_7](start_span)[span_8](start_span)--- КАТЕГОРИЯ: ДИЗАЙН (UI/UX)[span_7](end_span)[span_8](end_span) ----
+    def _draw_separator(self):
+        return "━━━━━━━━━━━━━━━━━━━━"
 
-    def _create_window(self, title, body):
-        border = self._generate_border()
+    def _build_frame(self, title, content):
         header = f"💎 **FESTKA PREMIUM | {title}**"
-        return f"{header}\n{border}\n{body}\n{border}\n`v{self.version}`"
+        sep = self._draw_separator()
+        return f"{header}\n{sep}\n{content}\n{sep}\n`Engine Status: Active`"
 
-    def _get_status_icon(self, state):
-        return "🟢 `ONLINE`" if state else "🔴 `OFFLINE`"
+    def _status_label(self, is_online):
+        return "🟢 `ONLINE`" if is_online else "🔴 `OFFLINE`"
 
-    # ---- СЛУЖЕБНЫЕ МЕТОДЫ ----
-    def _calculate_uptime(self):
-        diff = int(time.time() - self.uptime_start)
-        return str(timedelta(seconds=diff))
+    # ---- КАТЕГОРИЯ: СИСТЕМНЫЕ УТИЛИТЫ ----
+    def _uptime_calc(self):
+        uptime = timedelta(seconds=int(time.time() - self.start_time))
+        return str(uptime)
 
-    async def _safe_edit(self, event, text, parse_mode='md'):
+    async def _safe_send(self, event, text):
         try:
-            return await event.edit(text, parse_mode=parse_mode)
+            await event.edit(text, parse_mode='md')
         except Exception as e:
-            logger.error(f"Edit Error: {e}")
+            logger.error(f"UI Error: {e}")
 
-    # ---- ЯДРО СИСТЕМЫ ----
-    async def boot(self):
-        logger.info("Booting Festka Premium Engine...")
-        session_str = self.db_root.child("session").get()
+    # ---- КАТЕГОРИЯ: ЯДРО АВТОРИЗАЦИИ ----
+    async def connect_client(self):
+        logger.info("Attempting to connect to Telegram API...")
+        # Приоритетное получение сессии из Firebase
+        session_str = self.db.child("session").get()
         
         if not session_str:
-            logger.critical("NO SESSION FOUND IN FIREBASE")
+            logger.critical("CRITICAL: STRING_SESSION NOT FOUND IN DATABASE")
             return False
 
         try:
@@ -90,182 +91,186 @@ class FestkaPremium:
             await self.client.connect()
             
             if not await self.client.is_user_authorized():
-                logger.error("Session is invalid or expired")
+                logger.error("Session Authorization: FAILED")
                 return False
                 
-            # Скрытый режим
+            # [span_9](start_span)Режим инкогнито[span_9](end_span)
             await self.client(functions.account.UpdateStatusRequest(offline=True))
             return True
         except Exception as e:
-            logger.error(f"Boot Error: {e}")
+            logger.error(f"Connection Error: {e}")
             return False
 
-    # ---- ОБРАБОТЧИКИ КОМАНД (МЕНЕДЖЕР) ----
-    def register_handlers(self):
+    # -[span_10](start_span)--- КАТЕГОРИЯ: МЕНЕДЖЕР КОМАНД[span_10](end_span) ----
+    def load_handlers(self):
         @self.client.on(events.NewMessage(outgoing=True))
-        async def global_router(event):
+        async def main_controller(event):
             raw = event.raw_text.strip()
-            args = raw.split()
-            if not args: return
-            cmd = args[0].lower()
+            if not raw: return
+            
+            cmd_parts = raw.split()
+            trigger = cmd_parts[0].lower()
 
-            # МЕНЮ ПОМОЩИ
-            if cmd in ['.help', '/start', '.menu']:
-                menu = (
-                    "🛰 **Мониторинг:**\n"
-                    "└ `+ @nick` - Добавить в трекер\n"
-                    "└ `- @nick` - Удалить из трекера\n"
-                    "└ `.list` - Текущие цели\n\n"
-                    "🔍 **Инструменты:**\n"
-                    "└ `.osint @nick` - Соц. сети\n"
-                    "└ `.id @nick` - Получить ID\n\n"
-                    "⚙️ **Система:**\n"
-                    "└ `.sys` - Состояние сервера\n"
-                    "└ `.ping` - Задержка\n"
-                    "└ `.clean` - Сброс логов"
+            # [span_11](start_span)КОМАНДА: ПОМОЩЬ[span_11](end_span)
+            if trigger in ['.help', '/help', '.menu']:
+                help_body = (
+                    "🛰 **Мониторинг**\n"
+                    "├ `+ @nick` - Добавить цель\n"
+                    "├ `- @nick` - Удалить цель\n"
+                    "└ `.list` - Показать всех\n\n"
+                    "🔍 **Аналитика**\n"
+                    "├ `.osint @nick` - Соц. сети\n"
+                    "├ `.id @nick` - Узнать ID\n"
+                    "└ `.logs` - Последние 10 событий\n\n"
+                    "⚙️ **Система**\n"
+                    "├ `.sys` - Инфо о сервере\n"
+                    "├ `.ping` - Задержка сети\n"
+                    "└ `.reboot` - Полный сброс"
                 )
-                await self._safe_edit(event, self._create_window("ГЛАВНОЕ МЕНЮ", menu))
+                await self._safe_send(event, self._build_frame("МЕНЮ КОМАНД", help_body))
 
-            # СИСТЕМНЫЙ СТАТУС
-            elif cmd == '.sys':
-                mem_data = self.db_root.child("targets").get() or {}
-                targets_count = len(mem_data)
+            # КОМАНДА: СТАТУС СЕРВЕРА
+            elif trigger == '.sys':
+                targets_data = self.db.child("targets").get() or {}
                 sys_body = (
-                    f"📡 **Узел:** `GitHub Actions`\n"
-                    f"⏳ **Аптайм:** `{self._calculate_uptime()}`\n"
-                    f"🎯 **Цели:** `{targets_count}`\n"
-                    f"🔔 **Уведомления:** `{self.notifications_sent}`\n"
-                    f"🐍 **Python:** `{platform.python_version()}`\n"
-                    f"📍 **Firebase:** `Connected`"
+                    f"📡 **Хост:** `GitHub Runner`\n"
+                    f"⏱ **Аптайм:** `{self._uptime_calc()}`\n"
+                    f"🎯 **В базе:** `{len(targets_data)}` объектов\n"
+                    f"📊 **Событий:** `{self.events_logged}`\n"
+                    f"💻 **ОС:** `{platform.system()} {platform.release()}`\n"
+                    f"🔑 **Firebase:** `Status: Connected`"
                 )
-                await self._safe_edit(event, self._create_window("SYSTEM STATUS", sys_body))
+                await self._safe_send(event, self._build_frame("СИСТЕМНЫЙ СТАТУС", sys_body))
 
-            # ДОБАВЛЕНИЕ ОБЪЕКТА
-            elif cmd.startswith('+'):
-                target = cmd.replace('+', '').strip().replace('@', '')
+            # КОМАНДА: ДОБАВИТЬ (+@nick)
+            elif trigger.startswith('+'):
+                target = trigger.replace('+', '').strip().replace('@', '')
                 if not target: return
                 
-                await self._safe_edit(event, f"🔄 Поиск `@{target}` в базе Telegram...")
-                entity = await self.client.get_entity(target) if target.isalpha() else None
+                await event.edit(f"🔄 Регистрация `@{target}` в системе...")
+                entity = await self.client.get_entity(target)
                 
                 if entity:
-                    user_payload = {
+                    payload = {
                         "username": target,
-                        "uid": entity.id,
-                        "status": False,
-                        "added_at": datetime.now().strftime("%d.%m %H:%M"),
-                        "checks": 0
+                        "user_id": entity.id,
+                        "current_state": False,
+                        "added_on": datetime.now().strftime("%d.%m.%Y %H:%M"),
+                        "last_change": "N/A"
                     }
-                    self.db_root.child(f"targets/{target}").set(user_payload)
-                    await self._safe_edit(event, f"✅ **Объект `@{target}` взят на сопровождение.**")
+                    self.db.child(f"targets/{target}").set(payload)
+                    await self._safe_send(event, f"✅ **Объект `@{target}` успешно добавлен под наблюдение.**")
                 else:
-                    await self._safe_edit(event, f"❌ **Объект `@{target}` не найден.**")
+                    await self._safe_send(event, f"❌ **Ошибка:** Объект `@{target}` не найден.")
 
-            # УДАЛЕНИЕ ОБЪЕКТА
-            elif cmd.startswith('-'):
-                target = cmd.replace('-', '').strip().replace('@', '')
-                self.db_root.child(f"targets/{target}").delete()
-                await self._safe_edit(event, f"🗑 **Объект `@{target}` удален из системы.**")
+            # КОМАНДА: УДАЛИТЬ (-@nick)
+            elif trigger.startswith('-'):
+                target = trigger.replace('-', '').strip().replace('@', '')
+                self.db.child(f"targets/{target}").delete()
+                await self._safe_send(event, f"🗑 **Объект `@{target}` исключен из мониторинга.**")
 
-            # ТЕКУЩИЕ ЦЕЛИ
-            elif cmd == '.list':
-                data = self.db_root.child("targets").get() or {}
+            # КОМАНДА: СПИСОК ЦЕЛЕЙ
+            elif trigger == '.list':
+                data = self.db.child("targets").get() or {}
                 if not data:
-                    await self._safe_edit(event, "📭 Система мониторинга пуста.")
+                    await self._safe_send(event, "📭 База данных мониторинга пуста.")
                     return
                 
-                list_str = ""
+                report = ""
                 for name, info in data.items():
-                    icon = "🟢" if info.get("status") else "🔴"
-                    list_str += f"{icon} `@{name}` (ID: `{info.get('uid')}`)\n"
+                    icon = "🟢" if info.get("current_state") else "🔴"
+                    report += f"{icon} `@{name}` | ID: `{info.get('user_id')}`\n"
                 
-                await self._safe_edit(event, self._create_window("ACTIVE TARGETS", list_str))
+                await self._safe_send(event, self._build_frame("СПИСОК ОБЪЕКТОВ", report))
 
-            # OSINT ПОИСК
-            elif cmd == '.osint':
-                if len(args) < 2:
-                    await self._safe_edit(event, "⚠️ Введите ник: `.osint nick`")
+            # КОМАНДА: OSINT
+            elif trigger == '.osint':
+                if len(cmd_parts) < 2:
+                    await self._safe_send(event, "⚠️ Использование: `.osint @nick`")
                     return
                 
-                nick = args[1].replace('@', '')
-                osint_body = ""
+                nick = cmd_parts[1].replace('@', '')
+                links = ""
                 for site, url in NETWORKS.items():
-                    osint_body += f"🔹 **{site}:** {url.format(nick)}\n"
+                    links += f"🔹 **{site}:** {url.format(nick)}\n"
                 
-                await self._safe_edit(event, self._create_window(f"OSINT: {nick}", osint_body))
+                await self._safe_send(event, self._build_frame(f"OSINT: {nick}", links))
 
-            # ПИНГ
-            elif cmd == '.ping':
-                s = datetime.now()
-                await event.edit("`Pinging...`")
-                ms = (datetime.now() - s).microseconds / 1000
-                await self._safe_edit(event, f"🚀 **Festka Response:** `{ms}ms`")
+            # КОМАНДА: ПИНГ
+            elif trigger == '.ping':
+                start_ping = datetime.now()
+                await event.edit("`Pinging Server...`")
+                diff = (datetime.now() - start_ping).microseconds / 1000
+                await self._safe_send(event, f"🚀 **Festka Latency:** `{diff}ms`")
 
-    # ---- МОНИТОРИНГ ЦИКЛ (ADVANCED) ----
-    async def watcher_loop(self):
-        logger.info("Watcher thread: STARTED")
-        while self.is_active:
+    # -[span_12](start_span)--- КАТЕГОРИЯ: ADVANCED MONITORING LOOP[span_12](end_span) ----
+    async def run_watcher(self):
+        logger.info("Deep Monitor Service: STARTED")
+        while self.is_running:
             try:
-                targets = self.db_root.child("targets").get() or {}
+                targets = self.db.child("targets").get() or {}
                 for username, data in targets.items():
                     try:
-                        # Запрос статуса
-                        user_id = data.get("uid")
-                        result = await self.client(functions.users.GetUsersRequest(id=[user_id]))
-                        if not result: continue
+                        uid = data.get("user_id")
+                        # Запрос актуального состояния
+                        user_info = await self.client(functions.users.GetUsersRequest(id=[uid]))
+                        if not user_info: continue
                         
-                        current_online = isinstance(result[0].status, types.UserStatusOnline)
-                        previous_online = data.get("status", False)
+                        is_online = isinstance(user_info[0].status, types.UserStatusOnline)
+                        old_state = data.get("current_state", False)
 
-                        # Если статус изменился
-                        if current_online != previous_online:
-                            self.notifications_sent += 1
-                            timestamp = datetime.now().strftime("%H:%M:%S")
+                        # Логика уведомления при изменении
+                        if is_online != old_state:
+                            self.events_logged += 1
+                            now_time = datetime.now().strftime("%H:%M:%S")
                             
-                            # Обновление в Firebase
-                            self.db_root.child(f"targets/{username}/status").set(current_online)
+                            # Синхронизация с БД
+                            self.db.child(f"targets/{username}/current_state").set(is_online)
+                            self.db.child(f"targets/{username}/last_change").set(now_time)
                             
-                            # Отправка уведомления
-                            msg_type = "ЗАШЕЛ В СЕТЬ 🟢" if current_online else "ВЫШЕЛ ИЗ СЕТИ 🔴"
-                            log_msg = f"👤 **@{username}**\n⚡️ Статус: `{msg_type}`\n🕒 Время: `{timestamp}`"
+                            # Генерация и отправка алерта
+                            status_text = "ВЕРНУЛСЯ В СЕТЬ 🟢" if is_online else "ПОКИНУЛ СЕТЬ 🔴"
+                            alert = (
+                                f"👤 **ОБЪЕКТ:** `@{username}`\n"
+                                f"⚡️ **СТАТУС:** `{status_text}`\n"
+                                f"🕒 **ВРЕМЯ:** `{now_time}`"
+                            )
+                            await self.client.send_message('me', self._build_frame("УВЕДОМЛЕНИЕ СТАТУСА", alert))
                             
-                            await self.client.send_message('me', self._create_window("EVENT LOG", log_msg))
-                            
-                            # Аналитика: сохраняем историю событий
-                            event_entry = {"time": timestamp, "type": msg_type}
-                            self.db_root.child(f"history/{username}").push(event_entry)
+                            # Запись в историю (Аналитика)
+                            history_log = {"event": status_text, "timestamp": now_time}
+                            self.db.child(f"history/{username}").push(history_log)
 
                     except FloodWaitError as e:
-                        logger.warning(f"Flood Wait: {e.seconds}s")
+                        logger.warning(f"FloodWait: sleeping {e.seconds}s")
                         await asyncio.sleep(e.seconds)
                     except Exception as e:
-                        logger.error(f"Watcher error on {username}: {e}")
+                        logger.error(f"Error checking @{username}: {e}")
                         continue
                 
-                # Поддержание невидимости
+                # Поддержание сессии в режиме Offline
                 await self.client(functions.account.UpdateStatusRequest(offline=True))
-                self.total_checks += 1
+                self.checks_performed += 1
                 
-                # Рандомная задержка для имитации поведения человека
-                await asyncio.sleep(random.randint(25, 40))
+                # Рандомная пауза для защиты от банов
+                await asyncio.sleep(random.randint(20, 35))
                 
             except Exception as e:
                 logger.error(f"Global Watcher Error: {e}")
-                await asyncio.sleep(60)
+                await asyncio.sleep(45)
 
-    # ---- ПУСК ----
-    async def start_engine(self):
-        if await self.boot():
-            self.register_handlers()
-            # Запуск циклов
-            asyncio.create_task(self.watcher_loop())
-            logger.info("Festka Premium is fully operational.")
+    # ---- ФИНАЛЬНЫЙ ЗАПУСК ----
+    async def start(self):
+        if await self.connect_client():
+            self.load_handlers()
+            # Фоновое выполнение мониторинга
+            asyncio.create_task(self.run_watcher())
+            logger.info(f"Festka Premium v{self.version} is now Online.")
             await self.client.run_until_disconnected()
         else:
-            logger.critical("Engine failure during boot.")
+            logger.critical("Engine startup failed.")
 
 if __name__ == "__main__":
-    bot_system = FestkaPremium()
-    loop = asyncio.get_event_loop()
-    loop.run_until_complete(bot_system.start_engine())
-                
+    core = FestkaPremium()
+    asyncio.run(core.start())
+                    
