@@ -1,4 +1,0 @@
-telethon
-firebase-admin
-nest_asyncio
-python-dotenv
