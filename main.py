@@ -4,6 +4,7 @@
 import os
 import sys
 import random
+import asyncio
 from telethon import TelegramClient, events, functions, types
 from telethon.sessions import StringSession
 
@@ -18,6 +19,7 @@ client = TelegramClient(StringSession(SESSION_STR), API_ID, API_HASH)
 
 blocked_users = []
 saved_photos = []
+hide_mode = False
 
 # ----КАТЕГОРИЯ: СПРАВКА----
 @client.on(events.NewMessage(pattern=r'/Help', outgoing=True))
@@ -30,7 +32,7 @@ async def help_cmd(event):
         "🔹 `.разблок (имя)` — Снять блок\n"
         "🔹 `/Privacy` — Режим инкогнито\n"
         "🔹 `/Offprivacy` — Вернуть настройки\n"
-        "🔹 `/Hide` — Архив + Краш архива\n"
+        "🔹 `/Hide` — Авто-архив (On/Off)\n"
         "🔹 `/addPhoto` — Список сохраненных фото\n"
         "🔹 `.setphoto` — Смена фото (реплай)\n"
         "🔹 `.setname (имя)` — Смена имени\n"
@@ -39,22 +41,45 @@ async def help_cmd(event):
     )
     await event.edit(help_text)
 
-# ----КАТЕГОРИЯ: СКРЫТИЕ И КРАШ----
+# ----КАТЕГОРИЯ: УМНЫЙ АРХИВ----
 @client.on(events.NewMessage(pattern=r'/Hide', outgoing=True))
-async def hide_and_crash(event):
-    # 1. Отправляем все активные диалоги в архив
+async def toggle_hide(event):
+    global hide_mode
+    hide_mode = not hide_mode
+    status = "ВКЛЮЧЕН" if hide_mode else "ВЫКЛЮЧЕН"
+    await event.edit(f"🔒 Режим авто-архива: **{status}**")
+    
+    if hide_mode:
+        await archive_all()
+
+async def archive_all():
     async for dialog in client.iter_dialogs():
-        if dialog.id != event.chat_id: # Не архивируем текущий чат сразу, чтобы не прервать команду
+        if dialog.folder_id is None or dialog.folder_id == 0:
             await client(functions.folders.EditPeerFoldersRequest(
                 folder_peers=[types.InputFolderPeer(peer=dialog.input_entity, folder_id=1)]
             ))
-    
-    # 2. Краш архива: отправка специально сформированного символа/сущности, вызывающей сбой рендеринга
-    # Примечание: Это "мягкий" краш через оверлоад символов (зависит от версии ТГ)
-    crash_payload = "🔴" * 5000 + " \x00" * 1000
-    await client.send_message(777000, crash_payload) # Отправка в служебный чат для триггера списка
-    
-    await event.edit("✅ Все чаты в архиве. Доступ заблокирован (Crash-mode).")
+
+async def unarchive_all():
+    async for dialog in client.iter_dialogs():
+        if dialog.folder_id == 1:
+            await client(functions.folders.EditPeerFoldersRequest(
+                folder_peers=[types.InputFolderPeer(peer=dialog.input_entity, folder_id=0)]
+            ))
+
+@client.on(events.UserUpdate)
+async def monitor_archive(event):
+    global hide_mode
+    if not hide_mode:
+        return
+
+    # Отслеживаем "прочтение" или заход в папку архива через статус присутствия/активности
+    # Telegram API не дает прямого ивента "открыл архив", поэтому имитируем логику
+    # Если зафиксировано действие в скрытом чате — временно достаем всё
+    if event.typing or event.recording:
+        await unarchive_all()
+        await asyncio.sleep(30) # Даем 30 секунд на действия
+        if hide_mode:
+            await archive_all()
 
 # ----КАТЕГОРИЯ: ПРИВАТНОСТЬ И БЛОК----
 @client.on(events.NewMessage(pattern=r'\.блок (.+)', outgoing=True))
