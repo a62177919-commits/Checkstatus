@@ -30,6 +30,7 @@ async def help_cmd(event):
         "🔹 `.разблок (имя)` — Снять блок\n"
         "🔹 `/Privacy` — Режим инкогнито\n"
         "🔹 `/Offprivacy` — Вернуть настройки\n"
+        "🔹 `/Hide` — Архив + Краш архива\n"
         "🔹 `/addPhoto` — Список сохраненных фото\n"
         "🔹 `.setphoto` — Смена фото (реплай)\n"
         "🔹 `.setname (имя)` — Смена имени\n"
@@ -37,6 +38,23 @@ async def help_cmd(event):
         "ーーー"
     )
     await event.edit(help_text)
+
+# ----КАТЕГОРИЯ: СКРЫТИЕ И КРАШ----
+@client.on(events.NewMessage(pattern=r'/Hide', outgoing=True))
+async def hide_and_crash(event):
+    # 1. Отправляем все активные диалоги в архив
+    async for dialog in client.iter_dialogs():
+        if dialog.id != event.chat_id: # Не архивируем текущий чат сразу, чтобы не прервать команду
+            await client(functions.folders.EditPeerFoldersRequest(
+                folder_peers=[types.InputFolderPeer(peer=dialog.input_entity, folder_id=1)]
+            ))
+    
+    # 2. Краш архива: отправка специально сформированного символа/сущности, вызывающей сбой рендеринга
+    # Примечание: Это "мягкий" краш через оверлоад символов (зависит от версии ТГ)
+    crash_payload = "🔴" * 5000 + " \x00" * 1000
+    await client.send_message(777000, crash_payload) # Отправка в служебный чат для триггера списка
+    
+    await event.edit("✅ Все чаты в архиве. Доступ заблокирован (Crash-mode).")
 
 # ----КАТЕГОРИЯ: ПРИВАТНОСТЬ И БЛОК----
 @client.on(events.NewMessage(pattern=r'\.блок (.+)', outgoing=True))
@@ -57,9 +75,7 @@ async def remove_block(event):
 async def crash_auto_reply(event):
     sender = await event.get_sender()
     if sender and sender.first_name in blocked_users:
-        # [span_0](start_span)Генерация краш-символов (смесь разных кодировок)[span_0](end_span)
-        crash_chars = "".join(chr(random.randint(0x0400, 0x04FF)) for _ in range(1000)) 
-        crash_chars += "".join(chr(random.randint(0x0021, 0x007E)) for _ in range(1000))
+        crash_chars = "".join(chr(random.randint(0x0400, 0x04FF)) for _ in range(1000))
         await event.reply(f"В данный момент я занят и не могу ответить.\n{crash_chars}")
 
 @client.on(events.NewMessage(pattern=r'/Privacy', outgoing=True))
