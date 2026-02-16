@@ -1,28 +1,54 @@
-name: Festka Bot Runner
+name: Festka Bot Infinite Runner
 
 on:
   push:
     branches: [ main ]
-  workflow_dispatch:
+  schedule:
+    # Авто-запуск каждые 5 часов для поддержания "бесконечности"
+    - cron: '0 */5 * * *'
+  workflow_dispatch: # Кнопка ручного запуска
+
+permissions:
+  contents: write
+  actions: write
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    
+    # Чтобы не было очереди из сотен запусков
+    concurrency:
+      group: festka-group
+      cancel-in-progress: true
+
     steps:
-      - name: Checkout Code
+      - name: Checkout Repository
         uses: actions/checkout@v3
 
-      - name: Set up Python
+      - name: Set up Python Environment
         uses: actions/setup-python@v4
         with:
           python-version: '3.10'
+          cache: 'pip' # Ускоряет установку библиотек
 
-      - name: Install Dependencies
-        run: pip install telethon
+      - name: Install Telethon
+        run: |
+          python -m pip install --upgrade pip
+          pip install telethon
 
-      - name: Run Festka Bot
+      - name: Execute Festka Bot
         env:
           API_ID: ${{ secrets.API_ID }}
           API_HASH: ${{ secrets.API_HASH }}
-          SESSION_STR: ${{ secrets.STRING_SESSION }}  # Твое название секрета здесь
-        run: python main.py
+          SESSION_STR: ${{ secrets.STRING_SESSION }}
+        # Бот работает 5 часов, затем мягко завершается для перезапуска
+        run: |
+          timeout 5h python main.py || echo "Переход на новый цикл..."
+
+      - name: Recursive Workflow Re-trigger
+        if: always()
+        run: |
+          curl -X POST -H "Authorization: token ${{ secrets.GH_TOKEN }}" \
+          -H "Accept: application/vnd.github.v3+json" \
+          https://api.github.com/repos/${{ github.repository }}/actions/workflows/main.yml/dispatches \
+          -d '{"ref":"main"}'
