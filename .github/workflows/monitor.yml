@@ -1,8 +1,10 @@
-name: Festka Bot Infinite Runner
+name: Festka Bot Infinite
 
 on:
   push:
     branches: [ main ]
+  schedule:
+    - cron: '0 */5 * * *'
   workflow_dispatch:
 
 permissions:
@@ -12,26 +14,44 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Checkout Repository
+      - name: 📥 Скачивание репозитория
         uses: actions/checkout@v3
 
-      - name: Set up Python
+      - name: 🐍 Установка Python 3.10
         uses: actions/setup-python@v4
         with:
           python-version: '3.10'
 
-      - name: Install Telethon
+      - name: 📦 Установка библиотек
         run: pip install telethon
 
-      - name: Check files
-        run: ls -R # Эта команда покажет нам в логах, видит ли GitHub твой main.py
+      - name: 🔍 Проверка файлов и секретов
+        env:
+          SESSION_CHECK: ${{ secrets.STRING_SESSION }}
+        run: |
+          ls -la
+          if [ -z "$SESSION_CHECK" ]; then
+            echo "❌ ОШИБКА: Секрет STRING_SESSION пустой или не найден!"
+            exit 1
+          else
+            echo "✅ Секрет STRING_SESSION найден."
+          fi
 
-      - name: Execute Festka Bot
+      - name: 🚀 ЗАПУСК БОТА
         env:
           API_ID: ${{ secrets.TG_API_ID }}
           API_HASH: ${{ secrets.TG_API_HASH }}
-          SESSION_STR: ${{ secrets.STRING_SESSION }} 
+          SESSION_STR: ${{ secrets.STRING_SESSION }}
+        # Убрал "|| echo", теперь если он упадет — мы увидим ошибку
+        # timeout 350m = 5 часов 50 минут (чуть меньше лимита гитхаба)
+        run: timeout 350m python3 main.py
+
+      - name: 🔄 Перезапуск цикла
+        if: always() # Выполнить, даже если timeout убил процесс (это норма)
         run: |
-          # Используем python3 и проверяем запуск
-          python3 main.py || echo "Скрипт не смог запуститься"
+          curl -X POST -H "Authorization: token ${{ secrets.GH_TOKEN }}" \
+          -H "Accept: application/vnd.github.v3+json" \
+          https://api.github.com/repos/${{ github.repository }}/actions/workflows/monitor.yml/dispatches \
+          -d '{"ref":"main"}'
