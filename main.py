@@ -16,6 +16,51 @@ if not SESSION_STR:
 client = TelegramClient(StringSession(SESSION_STR), API_ID, API_HASH)
 
 blocked_users = []
+saved_photos = []
+
+# ----КАТЕГОРИЯ: СПРАВКА----
+@client.on(events.NewMessage(pattern=r'/Help', outgoing=True))
+async def help_cmd(event):
+    help_text = (
+        "**📜 СПИСОК КОМАНД**\n"
+        "ーーー\n"
+        "🔹 `.ping` — Проверка связи\n"
+        "🔹 `.блок (имя)` — Автоответчик для юзера\n"
+        "🔹 `/Privacy` — Режим инкогнито\n"
+        "🔹 `/Offprivacy` — Вернуть настройки\n"
+        "🔹 `/addPhoto` — Список сохраненных фото\n"
+        "🔹 `.setphoto` — Смена фото (реплай)\n"
+        "🔹 `.setname (имя)` — Смена имени\n"
+        "🔹 `.setbio (текст)` — Смена описания\n"
+        "ーーー"
+    )
+    await event.edit(help_text)
+
+# ----КАТЕГОРИЯ: МЕДИАТЕКА----
+@client.on(events.NewMessage(outgoing=True))
+async def save_photo_to_db(event):
+    if event.photo:
+        saved_photos.append(event.photo)
+
+@client.on(events.NewMessage(pattern=r'/addPhoto', outgoing=True))
+async def list_photos(event):
+    if not saved_photos:
+        return await event.edit("Список фото пуст.")
+    
+    msg = "**🖼 Сохраненные фото:**\n"
+    for i, _ in enumerate(saved_photos, 1):
+        msg += f"Номер {i}: `/setnum {i}`\n"
+    await event.edit(msg)
+
+@client.on(events.NewMessage(pattern=r'/setnum (\d+)', outgoing=True))
+async def set_photo_by_number(event):
+    num = int(event.pattern_match.group(1)) - 1
+    if 0 <= num < len(saved_photos):
+        photo = await client.download_media(saved_photos[num])
+        await client(functions.photos.UploadProfilePhotoRequest(await client.upload_file(photo)))
+        await event.edit(f"✅ Фото №{num+1} установлено.")
+    else:
+        await event.edit("Неверный номер.")
 
 # ----КАТЕГОРИЯ: ПРИВАТНОСТЬ И БЛОК----
 @client.on(events.NewMessage(pattern=r'\.блок (.+)', outgoing=True))
@@ -28,28 +73,21 @@ async def add_block(event):
 @client.on(events.NewMessage(incoming=True, func=lambda e: e.is_private))
 async def auto_reply(event):
     sender = await event.get_sender()
-    name = sender.first_name
-    if name in blocked_users:
+    if sender and sender.first_name in blocked_users:
         await event.reply("В данный момент я занят и не могу ответить.")
 
 @client.on(events.NewMessage(pattern=r'/Privacy', outgoing=True))
 async def privacy_on(event):
-    await client(functions.account.SetPrivacyRequest(
-        key=types.InputPrivacyKeyStatusTimestamp(),
-        rules=[types.InputPrivacyValueDisallowAll()]
-    ))
-    await client(functions.account.SetPrivacyRequest(
-        key=types.InputPrivacyKeyChatInvite(),
-        rules=[types.InputPrivacyValueDisallowAll()]
-    ))
-    await client(functions.account.SetPrivacyRequest(
-        key=types.InputPrivacyKeyPhoneCall(),
-        rules=[types.InputPrivacyValueDisallowAll()]
-    ))
-    await client(functions.account.SetPrivacyRequest(
-        key=types.InputPrivacyKeyProfilePhoto(),
-        rules=[types.InputPrivacyValueDisallowAll()]
-    ))
+    await client(functions.account.SetPrivacyRequest(key=types.InputPrivacyKeyStatusTimestamp(), rules=[types.InputPrivacyValueDisallowAll()]))
+    await client(functions.account.SetPrivacyRequest(key=types.InputPrivacyKeyProfilePhoto(), rules=[types.InputPrivacyValueDisallowAll()]))
+    await client(functions.account.SetPrivacyRequest(key=types.InputPrivacyKeyChatInvite(), rules=[types.InputPrivacyValueDisallowAll()]))
+    await event.delete()
+
+@client.on(events.NewMessage(pattern=r'/Offprivacy', outgoing=True))
+async def privacy_off(event):
+    await client(functions.account.SetPrivacyRequest(key=types.InputPrivacyKeyStatusTimestamp(), rules=[types.InputPrivacyValueAllowAll()]))
+    await client(functions.account.SetPrivacyRequest(key=types.InputPrivacyKeyProfilePhoto(), rules=[types.InputPrivacyValueAllowAll()]))
+    await client(functions.account.SetPrivacyRequest(key=types.InputPrivacyKeyChatInvite(), rules=[types.InputPrivacyValueAllowAll()]))
     await event.delete()
 
 # ----КАТЕГОРИЯ: УПРАВЛЕНИЕ ПРОФИЛЕМ----
@@ -66,6 +104,12 @@ async def change_photo(event):
 async def change_name(event):
     new_name = event.pattern_match.group(1)
     await client(functions.account.UpdateProfileRequest(first_name=new_name))
+    await event.delete()
+
+@client.on(events.NewMessage(pattern=r'\.setbio (.+)', outgoing=True))
+async def change_bio(event):
+    new_bio = event.pattern_match.group(1)
+    await client(functions.account.UpdateProfileRequest(about=new_bio))
     await event.delete()
 
 # ----КАТЕГОРИЯ: СИСТЕМА----
