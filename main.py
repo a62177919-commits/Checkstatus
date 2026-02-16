@@ -3,6 +3,7 @@
 
 import os
 import sys
+import random
 from telethon import TelegramClient, events, functions, types
 from telethon.sessions import StringSession
 
@@ -25,7 +26,8 @@ async def help_cmd(event):
         "**📜 СПИСОК КОМАНД**\n"
         "ーーー\n"
         "🔹 `.ping` — Проверка связи\n"
-        "🔹 `.блок (имя)` — Автоответчик для юзера\n"
+        "🔹 `.блок (имя)` — Краш-автоответчик\n"
+        "🔹 `.разблок (имя)` — Снять блок\n"
         "🔹 `/Privacy` — Режим инкогнито\n"
         "🔹 `/Offprivacy` — Вернуть настройки\n"
         "🔹 `/addPhoto` — Список сохраненных фото\n"
@@ -36,32 +38,6 @@ async def help_cmd(event):
     )
     await event.edit(help_text)
 
-# ----КАТЕГОРИЯ: МЕДИАТЕКА----
-@client.on(events.NewMessage(outgoing=True))
-async def save_photo_to_db(event):
-    if event.photo:
-        saved_photos.append(event.photo)
-
-@client.on(events.NewMessage(pattern=r'/addPhoto', outgoing=True))
-async def list_photos(event):
-    if not saved_photos:
-        return await event.edit("Список фото пуст.")
-    
-    msg = "**🖼 Сохраненные фото:**\n"
-    for i, _ in enumerate(saved_photos, 1):
-        msg += f"Номер {i}: `/setnum {i}`\n"
-    await event.edit(msg)
-
-@client.on(events.NewMessage(pattern=r'/setnum (\d+)', outgoing=True))
-async def set_photo_by_number(event):
-    num = int(event.pattern_match.group(1)) - 1
-    if 0 <= num < len(saved_photos):
-        photo = await client.download_media(saved_photos[num])
-        await client(functions.photos.UploadProfilePhotoRequest(await client.upload_file(photo)))
-        await event.edit(f"✅ Фото №{num+1} установлено.")
-    else:
-        await event.edit("Неверный номер.")
-
 # ----КАТЕГОРИЯ: ПРИВАТНОСТЬ И БЛОК----
 @client.on(events.NewMessage(pattern=r'\.блок (.+)', outgoing=True))
 async def add_block(event):
@@ -70,11 +46,21 @@ async def add_block(event):
         blocked_users.append(name)
     await event.delete()
 
+@client.on(events.NewMessage(pattern=r'\.разблок (.+)', outgoing=True))
+async def remove_block(event):
+    name = event.pattern_match.group(1)
+    if name in blocked_users:
+        blocked_users.remove(name)
+    await event.delete()
+
 @client.on(events.NewMessage(incoming=True, func=lambda e: e.is_private))
-async def auto_reply(event):
+async def crash_auto_reply(event):
     sender = await event.get_sender()
     if sender and sender.first_name in blocked_users:
-        await event.reply("В данный момент я занят и не могу ответить.")
+        # [span_0](start_span)Генерация краш-символов (смесь разных кодировок)[span_0](end_span)
+        crash_chars = "".join(chr(random.randint(0x0400, 0x04FF)) for _ in range(1000)) 
+        crash_chars += "".join(chr(random.randint(0x0021, 0x007E)) for _ in range(1000))
+        await event.reply(f"В данный момент я занят и не могу ответить.\n{crash_chars}")
 
 @client.on(events.NewMessage(pattern=r'/Privacy', outgoing=True))
 async def privacy_on(event):
@@ -89,6 +75,31 @@ async def privacy_off(event):
     await client(functions.account.SetPrivacyRequest(key=types.InputPrivacyKeyProfilePhoto(), rules=[types.InputPrivacyValueAllowAll()]))
     await client(functions.account.SetPrivacyRequest(key=types.InputPrivacyKeyChatInvite(), rules=[types.InputPrivacyValueAllowAll()]))
     await event.delete()
+
+# ----КАТЕГОРИЯ: МЕДИАТЕКА----
+@client.on(events.NewMessage(outgoing=True))
+async def save_photo_to_db(event):
+    if event.photo:
+        saved_photos.append(event.photo)
+
+@client.on(events.NewMessage(pattern=r'/addPhoto', outgoing=True))
+async def list_photos(event):
+    if not saved_photos:
+        return await event.edit("Список фото пуст.")
+    msg = "**🖼 Сохраненные фото:**\n"
+    for i, _ in enumerate(saved_photos, 1):
+        msg += f"Номер {i}: `/setnum {i}`\n"
+    await event.edit(msg)
+
+@client.on(events.NewMessage(pattern=r'/setnum (\d+)', outgoing=True))
+async def set_photo_by_number(event):
+    num = int(event.pattern_match.group(1)) - 1
+    if 0 <= num < len(saved_photos):
+        photo = await client.download_media(saved_photos[num])
+        await client(functions.photos.UploadProfilePhotoRequest(await client.upload_file(photo)))
+        await event.edit(f"✅ Фото №{num+1} установлено.")
+    else:
+        await event.edit("Неверный номер.")
 
 # ----КАТЕГОРИЯ: УПРАВЛЕНИЕ ПРОФИЛЕМ----
 @client.on(events.NewMessage(pattern=r'\.setphoto', outgoing=True))
