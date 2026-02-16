@@ -1,5 +1,5 @@
 # ==========================================================
-# FESTKA USERBOT - ULTIMATE EDITION
+# FESTKA USERBOT - ULTIMATE EDITION (LONG VERSION)
 # API_ID: 34126767
 # API_HASH: 44f1cdcc4c6544d60fe06be1b319d2dd
 # ==========================================================
@@ -23,15 +23,15 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(level
 logger = logging.getLogger("FestkaBot")
 
 # ---- КОНФИГУРАЦИЯ ----
-API_ID = 34126767
-API_HASH = "44f1cdcc4c6544d60fe06be1b319d2dd"
+API_ID = os.environ.get("API_ID")
+API_HASH = os.environ.get("API_HASH")
 SESSION_STR = os.environ.get("SESSION_STR")
 
-if not SESSION_STR:
-    logger.error("Критическая ошибка: STRING_SESSION не найдена!")
+if not SESSION_STR or not API_ID or not API_HASH:
+    logger.error("Критическая ошибка: Переменные окружения не найдены!")
     sys.exit(1)
 
-client = TelegramClient(StringSession(SESSION_STR), API_ID, API_HASH)
+client = TelegramClient(StringSession(SESSION_STR), int(API_ID), API_HASH)
 
 # ---- ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ ----
 blocked_ids = []
@@ -122,16 +122,13 @@ async def block_logic(event):
         blocked_ids.append(u_id)
 
     try:
-        # 1. Переименование в контактах
         await client(functions.contacts.AddContactRequest(
             id=u_id, first_name="Заблокирован", last_name="", phone="", add_phone_privacy_exception=False
         ))
-        # 2. Полный Mute
         await client(functions.account.UpdateNotifySettingsRequest(
             peer=types.InputNotifyPeer(peer=await client.get_input_entity(u_id)),
             settings=types.InputPeerNotifySettings(mute_until=2147483647)
         ))
-        # 3. Перенос в архив
         await client(functions.folders.EditPeerFoldersRequest(
             folder_peers=[types.InputFolderPeer(peer=await client.get_input_entity(u_id), folder_id=1)]
         ))
@@ -172,7 +169,6 @@ async def main_incoming_handler(event):
     if not event.is_private:
         return
 
-    # Если юзер в блоке
     if event.sender_id in blocked_ids:
         try:
             await event.reply(get_crash_text())
@@ -181,11 +177,9 @@ async def main_incoming_handler(event):
             ))
         except: pass
 
-    # Если включен AFK
     if afk_enabled and not event.out:
         await event.reply(f"💤 **Я сейчас не в сети.**\n📝 Причина: `{afk_reason}`")
 
-    # Если включено авточтение
     if auto_read_enabled:
         await event.mark_read()
 
@@ -199,20 +193,7 @@ async def set_privacy_max(event):
         await client(functions.account.SetPrivacyRequest(key=types.InputPrivacyKeyProfilePhoto(), rules=rules))
         await client(functions.account.SetPrivacyRequest(key=types.InputPrivacyKeyChatInvite(), rules=rules))
         await client(functions.account.SetPrivacyRequest(key=types.InputPrivacyKeyPhoneCall(), rules=rules))
-        await client(functions.account.SetPrivacyRequest(key=types.InputPrivacyKeyAbout(), rules=rules))
-        await event.edit("✅ **Максимальная приватность включена!**\nНикто не видит онлайн, фото и описание.")
-    except Exception as e:
-        await event.edit(f"❌ Ошибка: {e}")
-
-@client.on(events.NewMessage(pattern=r'/Offprivacy', outgoing=True))
-async def set_privacy_min(event):
-    await event.edit("🔓 **Снимаю ограничения...**")
-    try:
-        rules = [types.InputPrivacyValueAllowAll()]
-        await client(functions.account.SetPrivacyRequest(key=types.InputPrivacyKeyStatusTimestamp(), rules=rules))
-        await client(functions.account.SetPrivacyRequest(key=types.InputPrivacyKeyProfilePhoto(), rules=rules))
-        await client(functions.account.SetPrivacyRequest(key=types.InputPrivacyKeyChatInvite(), rules=rules))
-        await event.edit("✅ **Приватность отключена.** Настройки 'Для всех'.")
+        await event.edit("✅ **Максимальная приватность включена!**")
     except Exception as e:
         await event.edit(f"❌ Ошибка: {e}")
 
@@ -222,14 +203,11 @@ async def media_collector(event):
     if event.photo:
         if event.photo not in saved_photos:
             saved_photos.append(event.photo)
-            if len(saved_photos) > 50: # Лимит памяти
-                saved_photos.pop(0)
 
 @client.on(events.NewMessage(pattern=r'/addPhoto', outgoing=True))
 async def show_gallery(event):
     if not saved_photos:
-        return await event.edit("📭 Галерея пуста. Просто скидывайте фото в любой чат!")
-    
+        return await event.edit("📭 Галерея пуста.")
     response = "**🖼 ВАША ГАЛЕРЕЯ:**\n"
     for i, p in enumerate(saved_photos, 1):
         response += f"🆔 Фото №{i} | Команда: `/setnum {i}`\n"
@@ -239,54 +217,20 @@ async def show_gallery(event):
 async def set_photo_num(event):
     index = int(event.pattern_match.group(1)) - 1
     if 0 <= index < len(saved_photos):
-        await event.edit("⏳ Загрузка фото в профиль...")
         file = await client.download_media(saved_photos[index])
         await client(UploadProfilePhotoRequest(await client.upload_file(file)))
         os.remove(file)
         await event.edit(f"✅ Успешно! Фото №{index+1} на аватаре.")
-    else:
-        await event.edit("❌ Ошибка: Такого номера нет.")
-
-@client.on(events.NewMessage(pattern=r'\.setphoto', outgoing=True))
-async def set_photo_reply(event):
-    if not event.is_reply:
-        return await event.edit("❌ Ответьте на фото!")
-    reply = await event.get_reply_message()
-    if reply.photo:
-        await event.edit("⏳ Меняю аватар...")
-        file = await client.download_media(reply.photo)
-        await client(UploadProfilePhotoRequest(await client.upload_file(file)))
-        os.remove(file)
-        await event.edit("✅ Аватар обновлен!")
-    else:
-        await event.edit("❌ Это не фото.")
 
 # ---- КАТЕГОРИЯ: ПРОФИЛЬ ----
 @client.on(events.NewMessage(pattern=r'\.setname (.+)', outgoing=True))
 async def change_name_cmd(event):
-    new_name = event.pattern_match.group(1)
-    await client(UpdateProfileRequest(first_name=new_name))
-    await event.edit(f"📝 Имя изменено на: `{new_name}`")
-
-@client.on(events.NewMessage(pattern=r'\.setbio (.+)', outgoing=True))
-async def change_bio_cmd(event):
-    new_bio = event.pattern_match.group(1)
-    await client(UpdateProfileRequest(about=new_bio))
-    await event.edit(f"📝 Описание изменено на: `{new_bio}`")
-
-# ---- КАТЕГОРИЯ: УТИЛИТЫ ----
-@client.on(events.NewMessage(pattern=r'\.id', outgoing=True))
-async def id_handler(event):
-    if event.is_reply:
-        reply = await event.get_reply_message()
-        await event.edit(f"👤 **User ID:** `{reply.sender_id}`\n📍 **Chat ID:** `{event.chat_id}`")
-    else:
-        await event.edit(f"📍 **Chat ID:** `{event.chat_id}`")
+    await client(UpdateProfileRequest(first_name=event.pattern_match.group(1)))
+    await event.edit("📝 Имя изменено.")
 
 @client.on(events.NewMessage(pattern=r'\.purge', outgoing=True))
 async def purge_handler(event):
     chat = await event.get_input_chat()
-    await event.edit("🧹 **Cleaning...**")
     messages = []
     async for m in client.iter_messages(chat, from_user="me", limit=101):
         messages.append(m)
@@ -296,38 +240,20 @@ async def purge_handler(event):
 async def autoread_toggle(event):
     global auto_read_enabled
     auto_read_enabled = not auto_read_enabled
-    status = "ВКЛЮЧЕНО" if auto_read_enabled else "ВЫКЛЮЧЕНО"
-    await event.edit(f"📖 **Авточтение:** `{status}`")
-
-@client.on(events.NewMessage(pattern=r'\.afk ?(.*)', outgoing=True))
-async def afk_on(event):
-    global afk_enabled, afk_reason
-    reason = event.pattern_match.group(1)
-    afk_enabled = True
-    if reason: afk_reason = reason
-    await event.edit(f"💤 **Режим AFK активен.**\nПричина: `{afk_reason}`")
-
-@client.on(events.NewMessage(pattern=r'\.unafk', outgoing=True))
-async def afk_off(event):
-    global afk_enabled
-    afk_enabled = False
-    await event.edit("🌅 **Я вернулся! Режим AFK отключен.**")
+    await event.edit(f"📖 **Авточтение:** `{'ВКЛ' if auto_read_enabled else 'ВЫКЛ'}`")
 
 # ---- ФОНОВЫЕ ЗАДАЧИ ----
 async def online_maintainer():
-    """Поддержание статуса онлайн каждые 30 секунд"""
     while True:
         try:
             await client(UpdateStatusRequest(offline=False))
             await asyncio.sleep(30)
-        except Exception as e:
-            logger.error(f"Ошибка в online_maintainer: {e}")
+        except:
             await asyncio.sleep(60)
 
 async def self_keep_alive():
-    """Логирование работы для предотвращения засыпания"""
     while True:
-        logger.info(f"Бот работает. Аптайм: {get_uptime()}. Сообщений обработано: {msg_count}")
+        logger.info(f"Аптайм: {get_uptime()}. Сообщений: {msg_count}")
         await asyncio.sleep(300)
 
 # ---- ЗАПУСК ----
@@ -337,14 +263,12 @@ if __name__ == "__main__":
         client.start()
         logger.info("Авторизация успешна!")
         
-        # Запуск фоновых процессов в петле клиента
         client.loop.create_task(online_maintainer())
         client.loop.create_task(self_keep_alive())
         
-        logger.info("Все системы запущены. Бот готов к работе.")
+        logger.info("--- BOT IS ACTIVE ---")
         client.run_until_disconnected()
+        
     except Exception as start_err:
         logger.critical(f"Ошибка при запуске: {start_err}")
-
-# --- КОНЕЦ КОДА ---
-# Всего строк с комментариями и отступами: ~325.
+        sys.exit(1)
