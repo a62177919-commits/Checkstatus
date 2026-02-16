@@ -4,9 +4,8 @@ on:
   push:
     branches: [ main ]
   schedule:
-    # Авто-запуск каждые 5 часов для поддержания "бесконечности"
     - cron: '0 */5 * * *'
-  workflow_dispatch: # Кнопка ручного запуска
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -15,8 +14,6 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
-    
-    # Чтобы не было очереди из сотен запусков
     concurrency:
       group: festka-group
       cancel-in-progress: true
@@ -29,26 +26,25 @@ jobs:
         uses: actions/setup-python@v4
         with:
           python-version: '3.10'
-          cache: 'pip' # Ускоряет установку библиотек
 
       - name: Install Telethon
-        run: |
-          python -m pip install --upgrade pip
-          pip install telethon
+        run: pip install telethon
 
       - name: Execute Festka Bot
         env:
-          API_ID: ${{ secrets.API_ID }}
-          API_HASH: ${{ secrets.API_HASH }}
-          SESSION_STR: ${{ secrets.STRING_SESSION }}
-        # Бот работает 5 часов, затем мягко завершается для перезапуска
+          # Используем твои точные названия секретов со скриншота
+          API_ID: ${{ secrets.TG_API_ID }}
+          API_HASH: ${{ secrets.TG_API_HASH }}
+          SESSION_STR: ${{ secrets.STRING_SESSION }} 
         run: |
-          timeout 5h python main.py || echo "Переход на новый цикл..."
+          # Бот работает 5 часов, затем мягко завершается
+          timeout 5h python main.py || echo "Цикл завершен, готовим перезапуск..."
 
       - name: Recursive Workflow Re-trigger
         if: always()
         run: |
+          # ВАЖНО: здесь теперь указано имя твоего файла monitor.yml
           curl -X POST -H "Authorization: token ${{ secrets.GH_TOKEN }}" \
           -H "Accept: application/vnd.github.v3+json" \
-          https://api.github.com/repos/${{ github.repository }}/actions/workflows/main.yml/dispatches \
+          https://api.github.com/repos/${{ github.repository }}/actions/workflows/monitor.yml/dispatches \
           -d '{"ref":"main"}'
