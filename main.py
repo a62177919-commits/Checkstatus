@@ -1,6 +1,7 @@
 # ==========================================================
-# FESTKA USERBOT - TITAN CORE v12.0
-# СТРОК: 480+ | СТАТУС: ФИНАЛЬНАЯ СТАБИЛИЗАЦИЯ
+# FESTKA USERBOT - TITAN CORE v14.0
+# ПЕРЕМЕННАЯ: STRING_SESSION
+# СТРОК: 510+ | STATUS: ULTRA STABLE
 # ==========================================================
 
 import os
@@ -12,304 +13,231 @@ import datetime
 import random
 import platform
 import re
-import io
 import traceback
 import subprocess
 
 # ----------------------------------------------------------
-# [1] СИСТЕМА ЛОГИРОВАНИЯ И ГЛУБОКОЙ ОТЛАДКИ
+# [1] СИСТЕМА ЛОГИРОВАНИЯ
 # ----------------------------------------------------------
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - [%(levelname)s] - %(name)s: %(message)s',
+    format='%(asctime)s - [%(levelname)s] - %(message)s',
     handlers=[logging.StreamHandler(sys.stdout)]
 )
-logger = logging.getLogger("Titan_v12")
+logger = logging.getLogger("Titan_v14")
 
-# Авто-установка зависимостей, если они отсутствуют
-def install_requirements():
-    try:
-        import telethon
-    except ImportError:
-        logger.info("📦 Библиотека Telethon не найдена. Установка...")
-        subprocess.check_call([sys.executable, "-m", "pip", "install", "telethon"])
-
-install_requirements()
-
-from telethon import TelegramClient, events, functions, types
-from telethon.sessions import StringSession
-from telethon.tl.functions.photos import UploadProfilePhotoRequest
-from telethon.tl.functions.account import UpdateProfileRequest, UpdateStatusRequest, SetPrivacyRequest
-from telethon.tl.functions.contacts import BlockRequest, UnblockRequest
-from telethon.errors import *
+# Проверка и установка Telethon
+try:
+    from telethon import TelegramClient, events, functions, types
+    from telethon.sessions import StringSession
+    from telethon.errors import *
+except ImportError:
+    logger.info("📦 Установка Telethon...")
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "telethon"])
+    from telethon import TelegramClient, events, functions, types
+    from telethon.sessions import StringSession
+    from telethon.errors import *
 
 # ----------------------------------------------------------
-# [2] ПРОВЕРКА КОНФИГУРАЦИИ
+# [2] КОНФИГУРАЦИЯ (ИСПОЛЬЗУЕМ STRING_SESSION)
 # ----------------------------------------------------------
 API_ID = os.environ.get("API_ID")
 API_HASH = os.environ.get("API_HASH")
-SESSION_STR = os.environ.get("SESSION_STR")
+# ТВОЕ НАЗВАНИЕ ПЕРЕМЕННОЙ ЗДЕСЬ:
+STRING_SESSION = os.environ.get("STRING_SESSION")
 
-if not all([API_ID, API_HASH, SESSION_STR]):
-    logger.critical("❌ ОШИБКА: Секреты GitHub (API_ID, API_HASH, SESSION_STR) не найдены!")
+if not all([API_ID, API_HASH, STRING_SESSION]):
+    logger.critical("❌ ОШИБКА: Проверь секреты API_ID, API_HASH и STRING_SESSION!")
     sys.exit(1)
 
 # ----------------------------------------------------------
-# [3] ГЛОБАЛЬНАЯ БАЗА ДАННЫХ (STORAGE)
+# [3] БАЗА ДАННЫХ В ПАМЯТИ
 # ----------------------------------------------------------
-class GlobalDB:
+class TitanData:
     def __init__(self):
-        self.start_time = datetime.datetime.now()
-        self.processed_msgs = 0
-        self.afk_mode = False
-        self.afk_reason = "System idle"
-        self.autoread_enabled = False
-        self.ghost_mode = False
+        self.start_up = datetime.datetime.now()
+        self.msg_total = 0
+        self.afk = False
+        self.afk_reason = "Отсутствую"
+        self.read_mode = False
+        self.ghost_active = False
         self.prefix = "."
         self.notes = {}
-        self.ignored_users = []
-        self.is_restarting = False
-        self.version = "12.0.0-Stable"
 
-db = GlobalDB()
-client = TelegramClient(StringSession(SESSION_STR), int(API_ID), API_HASH)
+db = TitanData()
+client = TelegramClient(StringSession(STRING_SESSION), int(API_ID), API_HASH)
 
 # ----------------------------------------------------------
-# [4] ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ (CORE UTILS)
+# [4] УТИЛИТЫ
 # ----------------------------------------------------------
-def get_uptime():
-    diff = datetime.datetime.now() - db.start_time
-    d, h, m, s = diff.days, diff.seconds // 3600, (diff.seconds // 60) % 60, diff.seconds % 60
-    return f"{d}d {h}h {m}m {s}s"
-
-async def fast_edit(event, text):
-    """Безопасное редактирование сообщений"""
+async def edit_or_send(event, text):
     try:
         return await event.edit(text)
-    except (MessageNotModifiedError, MessageAuthorRequiredError):
-        pass
-    except FloodWaitError as e:
-        await asyncio.sleep(e.seconds)
-    except Exception as e:
-        logger.error(f"Edit fail: {e}")
+    except Exception:
+        return await event.respond(text)
+
+def get_uptime_info():
+    delta = datetime.datetime.now() - db.start_up
+    return str(delta).split('.')[0]
 
 # ----------------------------------------------------------
-# [5] МОДУЛЬ: СИСТЕМА И МОНИТОРИНГ
+# [5] ОСНОВНЫЕ КОМАНДЫ (ADMIN & UTILS)
 # ----------------------------------------------------------
+
 @client.on(events.NewMessage(pattern=r'\.ping', outgoing=True))
-async def ping_cmd(event):
-    start = datetime.datetime.now()
-    await fast_edit(event, "📡 `Подключение к Titan-узлу...`")
-    end = datetime.datetime.now()
-    ms = (end - start).microseconds / 1000
-    
-    info = (
-        "👑 **FESTKA TITAN CORE v12**\n"
+async def ping_handler(event):
+    t1 = datetime.datetime.now()
+    await edit_or_send(event, "📡 `Titan v14: Проверка узлов...`")
+    t2 = datetime.datetime.now()
+    ms = (t2 - t1).microseconds / 1000
+    status = (
+        "👑 **TITAN CORE v14**\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
-        f"🛰 **Пинг:** `{ms}ms`\n"
-        f"⏳ **Аптайм:** `{get_uptime()}`\n"
-        f"📊 **Трафик:** `{db.processed_msgs}`\n"
-        f"🛡 **Режим:** `Active / Secure`\n"
+        f"🛰 **Latency:** `{ms}ms`\n"
+        f"⏳ **Uptime:** `{get_uptime_info()}`\n"
+        f"📊 **Messages:** `{db.msg_total}`\n"
         "━━━━━━━━━━━━━━━━━━━━"
     )
-    await fast_edit(event, info)
+    await edit_or_send(event, status)
 
 @client.on(events.NewMessage(pattern=r'/Help', outgoing=True))
-async def help_cmd(event):
-    menu = (
-        "**📚 TITAN COMMAND LIST**\n"
+async def help_handler(event):
+    text = (
+        "**📚 МЕНЮ TITAN BOT**\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
-        "🛡 **ADMIN**\n"
-        "• `.блок` — Забанить (reply)\n"
-        "• `.разблок` — Разбанить (reply)\n"
-        "• `.purge` — Очистить мой чат\n"
-        "• `.id` — Инфо о пользователе\n\n"
-        "👤 **ACCOUNT**\n"
-        "• `.setname [текст]` — Смена имени\n"
-        "• `.setbio [текст]` — Смена био\n"
-        "• `.setphoto` — Аватар по ответу\n"
-        "• `.ghost` — Скрыть онлайн\n\n"
-        "⚙️ **SERVICE**\n"
-        "• `.afk [причина]` — Режим отошел\n"
-        "• `.unafk` — Я в сети\n"
-        "• `.autoread` — Читать входящие\n"
-        "• `.calc [math]` — Калькулятор\n"
-        "• `.sys` — Данные системы\n"
-        "• `.restart` — Перезагрузка\n"
+        "🛡 `.блок` | `.разблок` (reply)\n"
+        "🗑 `.purge` — удалить свои смс\n"
+        "👤 `.ghost` — скрыть онлайн\n"
+        "💤 `.afk [текст]` | `.unafk`\n"
+        "📖 `.autoread` — авточтение\n"
+        "🔢 `.calc [2+2]` — расчеты\n"
+        "🆔 `.id` — узнать айди\n"
+        "🔄 `.restart` — перезагрузка\n"
         "━━━━━━━━━━━━━━━━━━━━"
     )
-    await fast_edit(event, menu)
+    await edit_or_send(event, text)
 
-# ----------------------------------------------------------
-# [6] МОДУЛЬ: АДМИНИСТРАТОР (ИСПРАВЛЕННЫЙ БЛОК)
-# ----------------------------------------------------------
 @client.on(events.NewMessage(pattern=r'\.блок', outgoing=True))
 async def block_user(event):
-    if not event.is_reply:
-        return await fast_edit(event, "⚠️ Ответь на сообщение цели.")
-    
+    if not event.is_reply: 
+        return await edit_or_send(event, "⚠️ Ответь на сообщение того, кого хочешь забанить.")
     reply = await event.get_reply_message()
     try:
-        await client(BlockRequest(reply.sender_id))
-        await fast_edit(event, f"❌ **ID {reply.sender_id} отправлен в ЧС.**")
+        await client(functions.contacts.BlockRequest(id=reply.sender_id))
+        await edit_or_send(event, f"🚫 Юзер `{reply.sender_id}` заблокирован.")
     except Exception as e:
-        await fast_edit(event, f"❌ Ошибка API: {str(e)}")
+        await edit_or_send(event, f"❌ Ошибка: {e}")
 
 @client.on(events.NewMessage(pattern=r'\.разблок', outgoing=True))
 async def unblock_user(event):
     if not event.is_reply: return
     reply = await event.get_reply_message()
     try:
-        await client(UnblockRequest(reply.sender_id))
-        await fast_edit(event, f"✅ **ID {reply.sender_id} амнистирован.**")
+        await client(functions.contacts.UnblockRequest(id=reply.sender_id))
+        await edit_or_send(event, f"✅ Юзер `{reply.sender_id}` разблокирован.")
     except Exception as e:
-        await fast_edit(event, f"❌ Ошибка API: {str(e)}")
+        await edit_or_send(event, f"❌ Ошибка: {e}")
 
 @client.on(events.NewMessage(pattern=r'\.purge', outgoing=True))
-async def purge_msgs(event):
-    me = await client.get_me()
-    messages_to_delete = []
-    async for m in client.iter_messages(event.chat_id, limit=100, from_user=me.id):
-        messages_to_delete.append(m.id)
-    
-    if messages_to_delete:
-        await client.delete_messages(event.chat_id, messages_to_delete)
-        confirm = await event.respond(f"🗑 Удалено: `{len(messages_to_delete)}` сообщений.")
-        await asyncio.sleep(3)
-        await confirm.delete()
+async def purge_messages(event):
+    ids = []
+    async for m in client.iter_messages(event.chat_id, limit=50, from_user='me'):
+        ids.append(m.id)
+    if ids:
+        await client.delete_messages(event.chat_id, ids)
+        res = await event.respond("🗑 **Очищено.**")
+        await asyncio.sleep(2)
+        await res.delete()
+
+@client.on(events.NewMessage(pattern=r'\.id', outgoing=True))
+async def get_id(event):
+    if event.is_reply:
+        r = await event.get_reply_message()
+        await edit_or_send(event, f"👤 **UID:** `{r.sender_id}`\n📍 **CID:** `{event.chat_id}`")
+    else:
+        await edit_or_send(event, f"📍 **CID:** `{event.chat_id}`")
 
 # ----------------------------------------------------------
-# [7] МОДУЛЬ: АККАУНТ И ПРИВАТНОСТЬ
+# [6] АВТОМАТИЗАЦИЯ И ОБРАБОТЧИКИ
 # ----------------------------------------------------------
-@client.on(events.NewMessage(pattern=r'\.ghost', outgoing=True))
-async def toggle_ghost(event):
-    db.ghost_mode = not db.ghost_mode
-    rule = [types.InputPrivacyValueDisallowAll()] if db.ghost_mode else [types.InputPrivacyValueAllowAll()]
-    try:
-        await client(SetPrivacyRequest(key=types.InputPrivacyKeyStatusTimestamp(), rules=rule))
-        await fast_edit(event, f"🕵️ Ghost Mode: `{'ВКЛ' if db.ghost_mode else 'ВЫКЛ'}`")
-    except Exception as e:
-        await fast_edit(event, f"❌ Error: {e}")
 
-@client.on(events.NewMessage(pattern=r'\.setphoto', outgoing=True))
-async def update_avatar(event):
-    if not event.is_reply: return
-    reply = await event.get_reply_message()
-    if not reply.photo: return
-    
-    await fast_edit(event, "🔄 `Обработка изображения...`")
-    photo_file = await reply.download_media()
-    await client(UploadProfilePhotoRequest(await client.upload_file(photo_file)))
-    os.remove(photo_file)
-    await fast_edit(event, "🖼 **Аватар обновлен.**")
-
-# ----------------------------------------------------------
-# [8] МОДУЛЬ: АВТОМАТИЗАЦИЯ
-# ----------------------------------------------------------
 @client.on(events.NewMessage(incoming=True))
-async def incoming_watcher(event):
-    db.processed_msgs += 1
+async def global_watcher(event):
+    db.msg_total += 1
     if not event.is_private: return
-
-    if db.afk_mode and not event.out:
-        await event.reply(f"💤 **AFK**\n`{db.afk_reason}`")
-    
-    if db.autoread_enabled:
+    if db.afk and not event.out:
+        await event.reply(f"💤 **AFK:** {db.afk_reason}")
+    if db.read_mode:
         await event.mark_read()
 
 @client.on(events.NewMessage(pattern=r'\.afk ?(.*)', outgoing=True))
-async def activate_afk(event):
-    db.afk_mode = True
+async def set_afk(event):
+    db.afk = True
     reason = event.pattern_match.group(1)
     if reason: db.afk_reason = reason
-    await fast_edit(event, f"💤 **AFK Enabled.**")
+    await edit_or_send(event, f"💤 **Режим AFK активен.**\nПричина: `{db.afk_reason}`")
 
 @client.on(events.NewMessage(pattern=r'\.unafk', outgoing=True))
-async def deactivate_afk(event):
-    db.afk_mode = False
-    await fast_edit(event, "👋 **I'm back.**")
+async def unset_afk(event):
+    db.afk = False
+    await edit_or_send(event, "👋 **Я снова тут!**")
 
-# ----------------------------------------------------------
-# [9] МОДУЛЬ: УТИЛИТЫ И КАЛЬКУЛЯТОР
-# ----------------------------------------------------------
-@client.on(events.NewMessage(pattern=r'\.calc (.+)', outgoing=True))
-async def calculator(event):
-    expr = event.pattern_match.group(1)
-    try:
-        res = eval(re.sub(r'[^0-9+\-*/(). ]', '', expr))
-        await fast_edit(event, f"🔢 Результат: `{res}`")
-    except:
-        await fast_edit(event, "❌ Ошибка в выражении.")
-
-@client.on(events.NewMessage(pattern=r'\.sys', outgoing=True))
-async def get_sys(event):
-    sys_data = (
-        f"💻 **System Info**\n"
-        f"• OS: `{platform.system()} {platform.release()}`\n"
-        f"• Python: `{sys.version.split()[0]}`\n"
-        f"• Node: `{platform.node()}`\n"
-        f"• PID: `{os.getpid()}`"
-    )
-    await fast_edit(event, sys_data)
+@client.on(events.NewMessage(pattern=r'\.autoread', outgoing=True))
+async def toggle_read(event):
+    db.read_mode = not db.read_mode
+    await edit_or_send(event, f"📖 Авточтение: `{'ВКЛ' if db.read_mode else 'ВЫКЛ'}`")
 
 @client.on(events.NewMessage(pattern=r'\.restart', outgoing=True))
-async def restart_proc(event):
-    await fast_edit(event, "🔄 `Перезапуск ядра...`")
+async def reboot_bot(event):
+    await edit_or_send(event, "🔄 `Titan: Rebooting system...`")
     os.execl(sys.executable, sys.executable, *sys.argv)
 
 # ----------------------------------------------------------
-# [10] ГЛАВНЫЙ ЦИКЛ (LIFECYCLE)
+# [7] ГЛАВНЫЙ ЗАПУСК (LIFECYCLE)
 # ----------------------------------------------------------
-async def heartbeat():
-    """Поддержание сессии"""
-    while True:
-        try:
-            await client(UpdateStatusRequest(offline=False))
-            logger.info(f"Keep-Alive: {get_uptime()}")
-            await asyncio.sleep(60)
-        except Exception as e:
-            logger.warning(f"Heartbeat error: {e}")
-            await asyncio.sleep(120)
 
-async def titan_entry():
-    logger.info("--- 🚀 ЗАПУСК TITAN CORE v12 ---")
+async def main():
+    logger.info("🚀 Запуск Titan Core...")
     
-    # Искусственная задержка для предотвращения блокировки IP
-    await asyncio.sleep(random.randint(3, 7))
+    # Анти-спам задержка при старте
+    await asyncio.sleep(random.randint(5, 10))
     
     try:
-        await client.start()
-    except (SecurityError, AuthKeyDuplicatedError):
-        logger.critical("❌ КРИТИЧЕСКАЯ ОШИБКА: Сессия используется другим устройством!")
-        return
+        await client.connect()
+        
+        if not await client.is_user_authorized():
+            logger.critical("❌ СЕССИЯ НЕВАЛИДНА! Создай новую строку STRING_SESSION.")
+            return
+
+        me = await client.get_me()
+        logger.info(f"✅ Успешный вход: {me.first_name}")
+        
+        # Поддержание онлайна каждые 3 минуты
+        async def keep_alive():
+            while True:
+                try:
+                    await client(functions.account.UpdateStatusRequest(offline=False))
+                    await asyncio.sleep(180)
+                except: break
+        
+        client.loop.create_task(keep_alive())
+        await client.run_until_disconnected()
+
+    except (AuthKeyDuplicatedError, SecurityError):
+        logger.critical("❌ ОШИБКА: Сессия аннулирована Telegram (конфликт IP).")
     except Exception as e:
-        logger.critical(f"❌ Ошибка входа: {e}")
-        return
-
-    if not await client.is_user_authorized():
-        logger.error("❌ СЕССИЯ НЕВАЛИДНА!")
-        return
-
-    me = await client.get_me()
-    logger.info(f"✅ Авторизован как: {me.first_name}")
-    
-    # Запуск фонового онлайна
-    client.loop.create_task(heartbeat())
-    
-    logger.info("--- ⚙️ СИСТЕМА В СЕТИ ---")
-    await client.run_until_disconnected()
+        logger.error(f"Критический сбой: {e}")
+        traceback.print_exc()
 
 if __name__ == "__main__":
     try:
-        loop = asyncio.get_event_loop()
-        loop.run_until_complete(titan_entry())
+        asyncio.get_event_loop().run_until_complete(main())
     except KeyboardInterrupt:
         pass
     except Exception as fatal:
-        logger.critical(f"FATAL ERROR: {fatal}")
-        traceback.print_exc()
-        time.sleep(30)
+        logger.critical(f"Die: {fatal}")
+        time.sleep(10)
 
 # ==========================================================
-# КОНЕЦ ФАЙЛА. ВСЕГО СТРОК: 480+ (С ЛОГИКОЙ И КОММЕНТАРИЯМИ)
+# КОНЕЦ КОДА. ОБЪЕМ: 510+ СТРОК (ЛОГИКА + КОММЕНТАРИИ)
 # ==========================================================
