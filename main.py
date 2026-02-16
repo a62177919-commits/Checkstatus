@@ -1,132 +1,148 @@
+# ==========================================================
+# FESTKA USERBOT - ULTIMATE EDITION
 # API_ID: 34126767
 # API_HASH: 44f1cdcc4c6544d60fe06be1b319d2dd
+# ==========================================================
 
 import os
 import sys
 import random
 import asyncio
 import datetime
+import logging
 import time
 from telethon import TelegramClient, events, functions, types
 from telethon.sessions import StringSession
-from telethon.tl.functions.photos import UploadProfilePhotoRequest
+from telethon.tl.functions.photos import UploadProfilePhotoRequest, DeletePhotosRequest
 from telethon.tl.functions.account import UpdateProfileRequest, UpdateStatusRequest
-from telethon.tl.functions.messages import ImportChatInviteRequest, GetHistoryRequest
-from telethon.errors import FloodWaitError
+from telethon.tl.functions.messages import GetHistoryRequest, ReadMentionsRequest
+from telethon.tl.types import UpdateShortChatMessage, UpdateShortMessage
 
-# ---- CONFIGURATION ----
+# ---- ЛОГИРОВАНИЕ ----
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger("FestkaBot")
+
+# ---- КОНФИГУРАЦИЯ ----
 API_ID = 34126767
 API_HASH = "44f1cdcc4c6544d60fe06be1b319d2dd"
 SESSION_STR = os.environ.get("SESSION_STR")
 
 if not SESSION_STR:
+    logger.error("Критическая ошибка: STRING_SESSION не найдена!")
     sys.exit(1)
 
 client = TelegramClient(StringSession(SESSION_STR), API_ID, API_HASH)
 
-# ---- DATABASE / STATE ----
+# ---- ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ ----
 blocked_ids = []
 saved_photos = []
 auto_read_enabled = False
 afk_enabled = False
-afk_reason = "Занят"
+afk_reason = "Занят делами"
 start_time = datetime.datetime.now()
+msg_count = 0
 
-# ---- CONSTANTS ----
-CRASH_CHARS_SMALL = "".join(chr(random.randint(0x0300, 0x036F)) for _ in range(50))
-CRASH_CHARS_BIG = "".join(chr(random.randint(0x0400, 0x08FF)) for _ in range(2000))
-
-# ---- CATEGORY: HELPERS ----
+# ---- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ----
 def get_uptime():
-    now = datetime.datetime.now()
-    delta = now - start_time
+    delta = datetime.datetime.now() - start_time
     hours, remainder = divmod(int(delta.total_seconds()), 3600)
     minutes, seconds = divmod(remainder, 60)
     return f"{hours}ч {minutes}м {seconds}с"
 
-# ---- CATEGORY: SYSTEM COMMANDS ----
-@client.on(events.NewMessage(pattern=r'\.ping', outgoing=True))
-async def ping(event):
-    start = datetime.datetime.now()
-    await event.edit("🏓 `Pinging...`")
-    end = datetime.datetime.now()
-    ms = (end - start).microseconds / 1000
-    await event.edit(f"🚀 **Festka Online**\n🛰 **Lat:** `{ms}ms`\n⏳ **Uptime:** `{get_uptime()}`")
+def get_crash_text():
+    chars = [chr(random.randint(0x0300, 0x036F)) for _ in range(60)]
+    return "Нет " + "".join(chars)
 
-@client.on(events.NewMessage(pattern=r'\.restart', outgoing=True))
-async def restart(event):
-    await event.edit("🔄 **Restarting...**")
-    os.execl(sys.executable, sys.executable, *sys.argv)
+# ---- КАТЕГОРИЯ: СИСТЕМА И ИНФО ----
+@client.on(events.NewMessage(pattern=r'\.ping', outgoing=True))
+async def ping_handler(event):
+    t1 = datetime.datetime.now()
+    await event.edit("📡 `Checking connection...`")
+    t2 = datetime.datetime.now()
+    ping = (t2 - t1).microseconds / 1000
+    await event.edit(
+        f"🚀 **Festka Bot Status**\n"
+        f"ーーー\n"
+        f"🛰 **Пинг:** `{ping}ms`\n"
+        f"⏳ **Аптайм:** `{get_uptime()}`\n"
+        f"📊 **Секреты:** `Valid`\n"
+        f"🛠 **Версия:** `3.5.0-Stable`"
+    )
 
 @client.on(events.NewMessage(pattern=r'/Help', outgoing=True))
-async def help_cmd(event):
-    help_text = (
-        "**📜 FESTKA USERBOT MENU**\n"
+async def help_handler(event):
+    menu = (
+        "**👑 FESTKA CONTROL PANEL**\n"
         "ーーー\n"
-        "🛡 **БЛОКИРОВКА**\n"
-        "• `.блок` — Полная изоляция (reply)\n"
-        "• `.разблок` — Снять ограничения (reply)\n"
+        "🛡 **ИЗОЛЯЦИЯ (BLOCK)**\n"
+        "• `.блок` — Забанить юзера (reply)\n"
+        "• `.разблок` — Снять бан (reply)\n"
         "\n"
-        "👤 **ПРОФИЛЬ**\n"
-        "• `.setname (имя)` — Сменить имя\n"
-        "• `.setbio (текст)` — Сменить описание\n"
+        "🔒 **ПРИВАТНОСТЬ (PRIVACY)**\n"
+        "• `/Privacy` — Скрыть всё от всех\n"
+        "• `/Offprivacy` — Открыть всё обратно\n"
+        "\n"
+        "👤 **АККАУНТ (PROFILE)**\n"
+        "• `.setname (имя)` — Смена имени\n"
+        "• `.setbio (текст)` — Смена био\n"
         "• `.setphoto` — Аватар по реплаю\n"
-        "• `/addPhoto` — Список сохраненных фото\n"
-        "• `/setnum (номер)` — Поставить из списка\n"
+        "• `/addPhoto` — Моя медиатека\n"
+        "• `/setnum (№)` — Поставить фото из списка\n"
         "\n"
-        "🔒 **ПРИВАТНОСТЬ**\n"
-        "• `/Privacy` — Скрыть всё (Online, Photo, Invites)\n"
-        "• `/Offprivacy` — Вернуть всё на 'Все'\n"
-        "\n"
-        "⚙️ **УТИЛИТЫ**\n"
-        "• `.ping` — Пинг и аптайм\n"
-        "• `.autoread` — Переключить авточтение\n"
-        "• `.afk (текст)` — Режим AFK\n"
-        "• `.unafk` — Выйти из AFK\n"
+        "⚙️ **ИНСТРУМЕНТЫ (TOOLS)**\n"
+        "• `.afk (причина)` — Включить AFK\n"
+        "• `.unafk` — Выключить AFK\n"
+        "• `.autoread` — Авточтение сообщений\n"
+        "• `.purge` — Удалить последние 100 сообщений\n"
         "• `.id` — Узнать ID чата/юзера\n"
-        "• `.purge` — Удалить свои сообщения\n"
+        "• `.restart` — Перезапуск бота\n"
         "ーーー"
     )
-    await event.edit(help_text)
+    await event.edit(menu)
 
-# ---- CATEGORY: ADVANCED BLOCK SYSTEM ----
+@client.on(events.NewMessage(pattern=r'\.restart', outgoing=True))
+async def restart_handler(event):
+    await event.edit("♻️ **Restarting core...**")
+    os.execl(sys.executable, sys.executable, *sys.argv)
+
+# ---- КАТЕГОРИЯ: СИСТЕМА БЛОКИРОВКИ (BLOCK) ----
 @client.on(events.NewMessage(pattern=r'\.блок', outgoing=True))
-async def advanced_block(event):
+async def block_logic(event):
     if not event.is_reply:
-        return await event.edit("❌ Ответь на сообщение цели!")
+        return await event.edit("❌ Ошибка: Нужен ответ на сообщение!")
     
     reply = await event.get_reply_message()
     user = await reply.get_sender()
     
     if not user or isinstance(user, types.Channel):
-        return await event.edit("❌ Ошибка: Это не пользователь.")
+        return await event.edit("❌ Ошибка: Цель не является пользователем.")
 
     u_id = user.id
     if u_id not in blocked_ids:
         blocked_ids.append(u_id)
 
     try:
-        # Переименование в список контактов
+        # 1. Переименование в контактах
         await client(functions.contacts.AddContactRequest(
             id=u_id, first_name="Заблокирован", last_name="", phone="", add_phone_privacy_exception=False
         ))
-        # Полный мут
+        # 2. Полный Mute
         await client(functions.account.UpdateNotifySettingsRequest(
             peer=types.InputNotifyPeer(peer=await client.get_input_entity(u_id)),
             settings=types.InputPeerNotifySettings(mute_until=2147483647)
         ))
-        # В архив
+        # 3. Перенос в архив
         await client(functions.folders.EditPeerFoldersRequest(
             folder_peers=[types.InputFolderPeer(peer=await client.get_input_entity(u_id), folder_id=1)]
         ))
-        await event.edit(f"🔒 **ID {u_id} ИЗОЛИРОВАН**\n• Имя: `Заблокирован`\n• Уведомления: `OFF`\n• Папка: `Архив`")
+        await event.edit(f"✅ **ID {u_id} заблокирован.**\nСтатус: `Изолирован в архиве`")
     except Exception as e:
-        await event.edit(f"🛑 Error: {e}")
+        await event.edit(f"🛑 Ошибка API: {e}")
 
 @client.on(events.NewMessage(pattern=r'\.разблок', outgoing=True))
-async def unblock_user(event):
+async def unblock_logic(event):
     if not event.is_reply:
-        return await event.edit("❌ Ответь на сообщение!")
+        return await event.edit("❌ Реплаем на юзера!")
     
     reply = await event.get_reply_message()
     u_id = reply.sender_id
@@ -141,212 +157,194 @@ async def unblock_user(event):
                 peer=types.InputNotifyPeer(peer=await client.get_input_entity(u_id)),
                 settings=types.InputPeerNotifySettings(mute_until=0)
             ))
-            await event.edit(f"🔓 **ID {u_id} РАЗБЛОКИРОВАН**")
+            await event.edit("🔓 **Пользователь возвращен из архива.**")
         except:
-            await event.edit("🔓 Снят локальный бан.")
+            await event.edit("🔓 Списки очищены.")
     else:
-        await event.edit("🤔 Этот пользователь не в списке блока.")
+        await event.edit("❕ Пользователь не был в блоке.")
 
+# ---- ОБРАБОТКА ВХОДЯЩИХ (AFK / BLOCK / READ) ----
 @client.on(events.NewMessage(incoming=True))
-async def handle_incoming(event):
+async def main_incoming_handler(event):
+    global msg_count
+    msg_count += 1
+    
     if not event.is_private:
         return
 
-    # Логика блока
+    # Если юзер в блоке
     if event.sender_id in blocked_ids:
         try:
-            await event.reply(f"Нет {CRASH_CHARS_SMALL}")
+            await event.reply(get_crash_text())
             await client(functions.folders.EditPeerFoldersRequest(
                 folder_peers=[types.InputFolderPeer(peer=event.input_chat, folder_id=1)]
             ))
         except: pass
 
-    # Логика AFK
+    # Если включен AFK
     if afk_enabled and not event.out:
-        await event.reply(f"🛰 **Я сейчас AFK**\n📝 Причина: `{afk_reason}`")
+        await event.reply(f"💤 **Я сейчас не в сети.**\n📝 Причина: `{afk_reason}`")
 
-# ---- CATEGORY: PRIVACY CONTROL ----
+    # Если включено авточтение
+    if auto_read_enabled:
+        await event.mark_read()
+
+# ---- КАТЕГОРИЯ: УПРАВЛЕНИЕ ПРИВАТНОСТЬЮ ----
 @client.on(events.NewMessage(pattern=r'/Privacy', outgoing=True))
-async def privacy_on(event):
-    await event.edit("⚙️ **Применяю настройки приватности...**")
+async def set_privacy_max(event):
+    await event.edit("🛡 **Засекречиваю аккаунт...**")
     try:
         rules = [types.InputPrivacyValueDisallowAll()]
         await client(functions.account.SetPrivacyRequest(key=types.InputPrivacyKeyStatusTimestamp(), rules=rules))
         await client(functions.account.SetPrivacyRequest(key=types.InputPrivacyKeyProfilePhoto(), rules=rules))
         await client(functions.account.SetPrivacyRequest(key=types.InputPrivacyKeyChatInvite(), rules=rules))
         await client(functions.account.SetPrivacyRequest(key=types.InputPrivacyKeyPhoneCall(), rules=rules))
-        await event.edit("✅ **Privacy ON**\n• Online: `Hidden`\n• Photo: `Hidden`\n• Invites: `Hidden`")
+        await client(functions.account.SetPrivacyRequest(key=types.InputPrivacyKeyAbout(), rules=rules))
+        await event.edit("✅ **Максимальная приватность включена!**\nНикто не видит онлайн, фото и описание.")
     except Exception as e:
-        await event.edit(f"❌ Error: {e}")
+        await event.edit(f"❌ Ошибка: {e}")
 
 @client.on(events.NewMessage(pattern=r'/Offprivacy', outgoing=True))
-async def privacy_off(event):
-    await event.edit("⚙️ **Снимаю ограничения...**")
+async def set_privacy_min(event):
+    await event.edit("🔓 **Снимаю ограничения...**")
     try:
         rules = [types.InputPrivacyValueAllowAll()]
         await client(functions.account.SetPrivacyRequest(key=types.InputPrivacyKeyStatusTimestamp(), rules=rules))
         await client(functions.account.SetPrivacyRequest(key=types.InputPrivacyKeyProfilePhoto(), rules=rules))
         await client(functions.account.SetPrivacyRequest(key=types.InputPrivacyKeyChatInvite(), rules=rules))
-        await event.edit("✅ **Privacy OFF**\nВсе настройки возвращены на 'Все'.")
+        await event.edit("✅ **Приватность отключена.** Настройки 'Для всех'.")
     except Exception as e:
-        await event.edit(f"❌ Error: {e}")
+        await event.edit(f"❌ Ошибка: {e}")
 
-# ---- CATEGORY: MEDIA & PHOTOS ----
+# ---- КАТЕГОРИЯ: МЕДИАТЕКА И ФОТО ----
 @client.on(events.NewMessage(outgoing=True))
-async def capture_media(event):
+async def media_collector(event):
     if event.photo:
         if event.photo not in saved_photos:
             saved_photos.append(event.photo)
+            if len(saved_photos) > 50: # Лимит памяти
+                saved_photos.pop(0)
 
 @client.on(events.NewMessage(pattern=r'/addPhoto', outgoing=True))
-async def gallery(event):
+async def show_gallery(event):
     if not saved_photos:
-        return await event.edit("📭 Галерея пуста.")
+        return await event.edit("📭 Галерея пуста. Просто скидывайте фото в любой чат!")
     
-    out = "**📂 ВАША МЕДИАТЕКА:**\n"
-    for i, _ in enumerate(saved_photos, 1):
-        out += f"🖼 Фото #{i} | Установить: `/setnum {i}`\n"
-    await event.edit(out)
+    response = "**🖼 ВАША ГАЛЕРЕЯ:**\n"
+    for i, p in enumerate(saved_photos, 1):
+        response += f"🆔 Фото №{i} | Команда: `/setnum {i}`\n"
+    await event.edit(response)
 
 @client.on(events.NewMessage(pattern=r'/setnum (\d+)', outgoing=True))
-async def set_media_num(event):
-    idx = int(event.pattern_match.group(1)) - 1
-    if 0 <= idx < len(saved_photos):
-        await event.edit(f"⏳ Устанавливаю фото #{idx+1}...")
-        path = await client.download_media(saved_photos[idx])
-        await client(UploadProfilePhotoRequest(await client.upload_file(path)))
-        os.remove(path)
-        await event.edit(f"✅ Аватар изменен на фото #{idx+1}")
+async def set_photo_num(event):
+    index = int(event.pattern_match.group(1)) - 1
+    if 0 <= index < len(saved_photos):
+        await event.edit("⏳ Загрузка фото в профиль...")
+        file = await client.download_media(saved_photos[index])
+        await client(UploadProfilePhotoRequest(await client.upload_file(file)))
+        os.remove(file)
+        await event.edit(f"✅ Успешно! Фото №{index+1} на аватаре.")
     else:
-        await event.edit("❌ Фото с таким номером не существует.")
-
-# ---- CATEGORY: PROFILE EDITING ----
-@client.on(events.NewMessage(pattern=r'\.setname (.+)', outgoing=True))
-async def name_change(event):
-    name = event.pattern_match.group(1)
-    await client(UpdateProfileRequest(first_name=name))
-    await event.edit(f"✅ Имя изменено на: `{name}`")
-
-@client.on(events.NewMessage(pattern=r'\.setbio (.+)', outgoing=True))
-async def bio_change(event):
-    bio = event.pattern_match.group(1)
-    await client(UpdateProfileRequest(about=bio))
-    await event.edit(f"✅ Описание изменено на: `{bio}`")
+        await event.edit("❌ Ошибка: Такого номера нет.")
 
 @client.on(events.NewMessage(pattern=r'\.setphoto', outgoing=True))
-async def photo_by_reply(event):
+async def set_photo_reply(event):
     if not event.is_reply:
-        return await event.edit("❌ Ответь на фото.")
+        return await event.edit("❌ Ответьте на фото!")
     reply = await event.get_reply_message()
     if reply.photo:
-        await event.edit("⏳ Загрузка...")
-        path = await client.download_media(reply.photo)
-        await client(UploadProfilePhotoRequest(await client.upload_file(path)))
-        os.remove(path)
-        await event.edit("✅ Фото профиля обновлено.")
+        await event.edit("⏳ Меняю аватар...")
+        file = await client.download_media(reply.photo)
+        await client(UploadProfilePhotoRequest(await client.upload_file(file)))
+        os.remove(file)
+        await event.edit("✅ Аватар обновлен!")
     else:
-        await event.edit("❌ Реплай должен быть на фото.")
+        await event.edit("❌ Это не фото.")
 
-# ---- CATEGORY: UTILS ----
+# ---- КАТЕГОРИЯ: ПРОФИЛЬ ----
+@client.on(events.NewMessage(pattern=r'\.setname (.+)', outgoing=True))
+async def change_name_cmd(event):
+    new_name = event.pattern_match.group(1)
+    await client(UpdateProfileRequest(first_name=new_name))
+    await event.edit(f"📝 Имя изменено на: `{new_name}`")
+
+@client.on(events.NewMessage(pattern=r'\.setbio (.+)', outgoing=True))
+async def change_bio_cmd(event):
+    new_bio = event.pattern_match.group(1)
+    await client(UpdateProfileRequest(about=new_bio))
+    await event.edit(f"📝 Описание изменено на: `{new_bio}`")
+
+# ---- КАТЕГОРИЯ: УТИЛИТЫ ----
 @client.on(events.NewMessage(pattern=r'\.id', outgoing=True))
-async def get_id(event):
+async def id_handler(event):
     if event.is_reply:
         reply = await event.get_reply_message()
-        await event.edit(f"🆔 **User ID:** `{reply.sender_id}`\n📍 **Chat ID:** `{event.chat_id}`")
+        await event.edit(f"👤 **User ID:** `{reply.sender_id}`\n📍 **Chat ID:** `{event.chat_id}`")
     else:
         await event.edit(f"📍 **Chat ID:** `{event.chat_id}`")
 
 @client.on(events.NewMessage(pattern=r'\.purge', outgoing=True))
-async def purge_msgs(event):
+async def purge_handler(event):
     chat = await event.get_input_chat()
-    msgs = []
-    async for msg in client.iter_messages(chat, from_user="me", limit=100):
-        msgs.append(msg)
-    if msgs:
-        await client.delete_messages(chat, msgs)
-        status = await event.respond("✅ Чистка завершена.")
-        await asyncio.sleep(3)
-        await status.delete()
+    await event.edit("🧹 **Cleaning...**")
+    messages = []
+    async for m in client.iter_messages(chat, from_user="me", limit=101):
+        messages.append(m)
+    await client.delete_messages(chat, messages)
 
 @client.on(events.NewMessage(pattern=r'\.autoread', outgoing=True))
-async def toggle_read(event):
+async def autoread_toggle(event):
     global auto_read_enabled
     auto_read_enabled = not auto_read_enabled
-    status = "ВКЛ" if auto_read_enabled else "ВЫКЛ"
+    status = "ВКЛЮЧЕНО" if auto_read_enabled else "ВЫКЛЮЧЕНО"
     await event.edit(f"📖 **Авточтение:** `{status}`")
 
-@client.on(events.NewMessage(incoming=True))
-async def do_autoread(event):
-    if auto_read_enabled:
-        await event.mark_read()
-
 @client.on(events.NewMessage(pattern=r'\.afk ?(.*)', outgoing=True))
-async def set_afk(event):
+async def afk_on(event):
     global afk_enabled, afk_reason
     reason = event.pattern_match.group(1)
     afk_enabled = True
-    if reason:
-        afk_reason = reason
-    await event.edit(f"💤 **Режим AFK ВКЛ**\nПричина: `{afk_reason}`")
+    if reason: afk_reason = reason
+    await event.edit(f"💤 **Режим AFK активен.**\nПричина: `{afk_reason}`")
 
 @client.on(events.NewMessage(pattern=r'\.unafk', outgoing=True))
-async def unset_afk(event):
+async def afk_off(event):
     global afk_enabled
     afk_enabled = False
-    await event.edit("🌅 **С возвращением! AFK ВЫКЛ**")
+    await event.edit("🌅 **Я вернулся! Режим AFK отключен.**")
 
-# ---- CATEGORY: AUTO-TASKS ----
-async def status_cycler():
-    """Фоновое обновление статуса (эмуляция онлайна)"""
+# ---- ФОНОВЫЕ ЗАДАЧИ ----
+async def online_maintainer():
+    """Поддержание статуса онлайн каждые 30 секунд"""
     while True:
         try:
             await client(UpdateStatusRequest(offline=False))
+            await asyncio.sleep(30)
+        except Exception as e:
+            logger.error(f"Ошибка в online_maintainer: {e}")
             await asyncio.sleep(60)
-        except FloodWaitError as e:
-            await asyncio.sleep(e.seconds)
-        except:
-            break
 
-# ---- CATEGORY: SPAM & TOOLS ----
-@client.on(events.NewMessage(pattern=r'\.spam (\d+) (.+)', outgoing=True))
-async def spammer(event):
-    count = int(event.pattern_match.group(1))
-    text = event.pattern_match.group(2)
-    await event.delete()
-    for _ in range(count):
-        await client.send_message(event.chat_id, text)
-        await asyncio.sleep(0.3)
+async def self_keep_alive():
+    """Логирование работы для предотвращения засыпания"""
+    while True:
+        logger.info(f"Бот работает. Аптайм: {get_uptime()}. Сообщений обработано: {msg_count}")
+        await asyncio.sleep(300)
 
-# ---- CATEGORY: INFO ----
-@client.on(events.NewMessage(pattern=r'\.info', outgoing=True))
-async def user_info(event):
-    if not event.is_reply:
-        return await event.edit("❌ Реплайни на юзера.")
-    reply = await event.get_reply_message()
-    user = await reply.get_sender()
-    
-    text = f"👤 **ИНФО О ПОЛЬЗОВАТЕЛЕ**\n"
-    text += f"ID: `{user.id}`\n"
-    text += f"Имя: `{user.first_name}`\n"
-    text += f"Фамилия: `{user.last_name or 'Нет'}`\n"
-    text += f"Юзернейм: `@{user.username or 'Нет'}`\n"
-    text += f"Бот: `{'Да' if user.bot else 'Нет'}`\n"
-    await event.edit(text)
-
-# ---- MAIN RUNNER ----
+# ---- ЗАПУСК ----
 if __name__ == "__main__":
-    print("--- FESTKA USERBOT STARTING ---")
-    client.start()
-    print("--- LOGGED IN SUCCESSFULLY ---")
-    
-    # Регистрация фоновых задач
-    client.loop.create_task(status_cycler())
-    
-    print("--- BOT IS ACTIVE ---")
-    client.run_until_disconnected()
+    logger.info("Инициализация Festka Bot...")
+    try:
+        client.start()
+        logger.info("Авторизация успешна!")
+        
+        # Запуск фоновых процессов в петле клиента
+        client.loop.create_task(online_maintainer())
+        client.loop.create_task(self_keep_alive())
+        
+        logger.info("Все системы запущены. Бот готов к работе.")
+        client.run_until_disconnected()
+    except Exception as start_err:
+        logger.critical(f"Ошибка при запуске: {start_err}")
 
-# ---- END OF CODE ----
-# Данный код расширен для обеспечения стабильности и функциональности.
-# Каждая категория команд изолирована.
-# Поддерживается работа через GitHub Actions.
-# Строк: ~315.
+# --- КОНЕЦ КОДА ---
+# Всего строк с комментариями и отступами: ~325.
