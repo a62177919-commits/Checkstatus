@@ -3,43 +3,65 @@ import asyncio
 import google.generativeai as genai
 from telethon import TelegramClient, events
 from telethon.sessions import StringSession
-from telethon.tl.functions.account import UpdateProfileRequest
 
-# --- ЧИТАЕМ ТВОИ СЕКРЕТЫ С ГИТХАБА ---
-API_ID = int(os.getenv("TG_API_ID"))
-API_HASH = os.getenv("TG_API_HASH")
-SESSION_STR = os.getenv("STRING_SESSION")
-GEMINI_KEY = os.getenv("GEMINI_API_KEY")
+# --- НАСТРОЙКИ (твои секреты) ---
+API_ID = int(os.getenv("TG_API_ID").strip())
+API_HASH = os.getenv("TG_API_HASH").strip())
+SESSION_STR = os.getenv("STRING_SESSION").strip()
+GEMINI_KEY = os.getenv("GEMINI_API_KEY").strip()
 
-# Настраиваем Gemini (твой ИИ-мозг)
+# Настройка Gemini
 genai.configure(api_key=GEMINI_KEY)
 model = genai.GenerativeModel('gemini-1.5-flash')
 
-# Запускаем селф-бота
 client = TelegramClient(StringSession(SESSION_STR), API_ID, API_HASH)
 
-print("Твой живой ИИ-помощник запущен!")
+# Переменная для хранения состояния режима разговора
+is_talk_mode = False
 
-# Команда .ai [текст] — спросить меня о чем угодно
-@client.on(events.NewMessage(pattern=r'\.ai (.*)', outgoing=True))
-async def ai_handler(event):
-    user_prompt = event.pattern_match.group(1)
-    await event.edit("⚡️ *Нейросеть генерирует ответ...*")
-    try:
-        response = model.generate_content(user_prompt)
-        # Если ответ слишком длинный, Telegram может выдать ошибку, 
-        # но для обычных чатов flash-модель подходит идеально.
-        await event.edit(response.text)
-    except Exception as e:
-        await event.edit(f"❌ Ошибка: {str(e)}")
+print("Бот-собеседник запущен!")
 
-# Команда .bio [текст] — сменить описание профиля
-@client.on(events.NewMessage(pattern=r'\.bio (.*)', outgoing=True))
-async def bio_handler(event):
-    new_bio = event.pattern_match.group(1)
-    await client(UpdateProfileRequest(about=new_bio))
-    await event.edit(f"✅ Био обновлено на: `{new_bio}`")
+# --- КОМАНДЫ УПРАВЛЕНИЯ ---
 
-# Запуск
-client.start()
-client.run_until_disconnected()
+@client.on(events.NewMessage(pattern=r'\.Talk$', outgoing=True))
+async def talk_on(event):
+    global is_talk_mode
+    is_talk_mode = True
+    await event.edit("🤖 **Режим разговора ВКЛЮЧЕН.** Теперь я буду отвечать на все твои сообщения.")
+
+@client.on(events.NewMessage(pattern=r'\.TalkOff$', outgoing=True))
+async def talk_off(event):
+    global is_talk_mode
+    is_talk_mode = False
+    await event.edit("🔇 **Режим разговора ВЫКЛЮЧЕН.** Я снова работаю только по командам.")
+
+# --- ЛОГИКА ОБЩЕНИЯ ---
+
+@client.on(events.NewMessage(outgoing=True))
+async def chat_handler(event):
+    global is_talk_mode
+    
+    # Если сообщение начинается с точки (это команда) — игнорируем здесь
+    if event.message.message.startswith('.'):
+        return
+
+    # Если режим разговора включен
+    if is_talk_mode:
+        # Небольшая задержка, чтобы имитировать "печатает..."
+        # (Опционально можно добавить event.edit("..."))
+        try:
+            response = model.generate_content(event.message.message)
+            # Отвечаем новым сообщением или редактируем старое? 
+            # Для режима беседы лучше отвечать НОВЫМ сообщением:
+            await client.send_message(event.chat_id, f"**Gemini:** {response.text}")
+        except Exception as e:
+            print(f"Ошибка ИИ: {e}")
+
+async def main():
+    await client.start()
+    print("Сессия активна. Бот в сети.")
+    await client.run_until_disconnected()
+
+if __name__ == '__main__':
+    asyncio.run(main())
+    
