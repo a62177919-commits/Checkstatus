@@ -1,57 +1,42 @@
-name: Festka Bot Infinite
+name: Telegram AI Assistant
 
 on:
   push:
     branches: [ main ]
   schedule:
-    - cron: '0 */5 * * *'
-  workflow_dispatch:
-
-permissions:
-  contents: write
-  actions: write
+    # Запуск каждые 6 часов (автоматическое поддержание жизни)
+    - cron: '0 */6 * * *'
+  workflow_dispatch: # Позволяет запустить бота вручную кнопкой
 
 jobs:
-  build:
+  run-bot:
     runs-on: ubuntu-latest
+    # Если бот уже запущен другим процессом, отменяем старый (чтобы не было дублей сессии)
+    concurrency:
+      group: telegram-ai
+      cancel-in-progress: true
 
     steps:
-      - name: 📥 Скачивание репозитория
+      - name: Checkout Code
         uses: actions/checkout@v3
 
-      - name: 🐍 Установка Python 3.10
+      - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.10'
+          python-version: '3.9'
 
-      - name: 📦 Установка библиотек
-        run: pip install telethon
-
-      - name: 🔍 Проверка файлов и секретов
-        env:
-          SESSION_CHECK: ${{ secrets.STRING_SESSION }}
+      - name: Install Dependencies
         run: |
-          ls -la
-          if [ -z "$SESSION_CHECK" ]; then
-            echo "❌ ОШИБКА: Секрет STRING_SESSION пустой или не найден!"
-            exit 1
-          else
-            echo "✅ Секрет STRING_SESSION найден."
-          fi
+          pip install telethon google-generativeai
 
-      - name: 🚀 ЗАПУСК БОТА
+      - name: Run AI Assistant
         env:
-          API_ID: ${{ secrets.TG_API_ID }}
-          API_HASH: ${{ secrets.TG_API_HASH }}
-          SESSION_STR: ${{ secrets.STRING_SESSION }}
-        # Убрал "|| echo", теперь если он упадет — мы увидим ошибку
-        # timeout 350m = 5 часов 50 минут (чуть меньше лимита гитхаба)
-        run: timeout 350m python3 main.py
-
-      - name: 🔄 Перезапуск цикла
-        if: always() # Выполнить, даже если timeout убил процесс (это норма)
+          # Используем твои названия секретов
+          TG_API_ID: ${{ secrets.TG_API_ID }}
+          TG_API_HASH: ${{ secrets.TG_API_HASH }}
+          STRING_SESSION: ${{ secrets.STRING_SESSION }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
-          curl -X POST -H "Authorization: token ${{ secrets.GH_TOKEN }}" \
-          -H "Accept: application/vnd.github.v3+json" \
-          https://api.github.com/repos/${{ github.repository }}/actions/workflows/monitor.yml/dispatches \
-          -d '{"ref":"main"}'
+          # Запуск на 5 часов 30 минут, чтобы воркфлоу не упал по ошибке лимита GitHub
+          timeout 19800s python main.py || echo "Перезапуск по расписанию..."
+          
