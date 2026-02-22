@@ -1,56 +1,60 @@
 import os
 import asyncio
-import google.generativeai as genai
 from telethon import TelegramClient, events
 from telethon.sessions import StringSession
+from google import genai
 
-# Считываем переменные
-API_ID_STR = os.getenv("TG_API_ID", "").strip()
-API_HASH = os.getenv("TG_API_HASH", "").strip()
-SESSION_STR = os.getenv("STRING_SESSION", "").strip()
-GEMINI_KEY = os.getenv("GEMINI_API_KEY", "").strip()
+# Читаем секреты
+API_ID = int(os.getenv("TG_API_ID").strip())
+API_HASH = os.getenv("TG_API_HASH").strip()
+SESSION_STR = os.getenv("STRING_SESSION").strip()
+GEMINI_KEY = os.getenv("GEMINI_API_KEY").strip()
 
-# Настройка ИИ
-genai.configure(api_key=GEMINI_KEY)
-model = genai.GenerativeModel('gemini-1.5-flash')
-
-client = TelegramClient(StringSession(SESSION_STR), int(API_ID_STR), API_HASH)
+# Настройка нового клиента Gemini
+gen_client = genai.Client(api_key=GEMINI_KEY)
+tg_client = TelegramClient(StringSession(SESSION_STR), API_ID, API_HASH)
 
 is_talk_mode = False
 
-print("--- БОТ ЗАПУСКАЕТСЯ ---")
+print("--- СИСТЕМА ЗАПУЩЕНА ---")
 
-@client.on(events.NewMessage(outgoing=True))
+@tg_client.on(events.NewMessage(outgoing=True))
 async def handler(event):
     global is_talk_mode
-    text = event.raw_text
-    print(f"Вижу сообщение: {text}") # Это появится в логах GitHub
+    text = event.raw_text.lower()
 
-    # Команда включения
-    if text.lower() == ".talk":
+    # Проверка команд
+    if text == ".talk":
         is_talk_mode = True
-        await event.edit("🤖 **ИИ включен**")
+        await event.edit("🤖 **ИИ активен. Я тебя слушаю.**")
+        print("Режим разговора включен")
         return
 
-    # Команда выключения
-    if text.lower() == ".talkoff":
+    if text == ".talkoff":
         is_talk_mode = False
-        await event.edit("🔇 **ИИ выключен**")
+        await event.edit("🔇 **ИИ выключен.**")
+        print("Режим разговора выключен")
         return
 
     # Если режим включен и это не команда
     if is_talk_mode and not text.startswith("."):
+        print(f"Запрос к ИИ: {event.raw_text}")
         try:
-            response = model.generate_content(text)
-            await client.send_message(event.chat_id, f"**Gemini:** {response.text}")
+            # Новый метод генерации контента
+            response = gen_client.models.generate_content(
+                model="gemini-1.5-flash", 
+                contents=event.raw_text
+            )
+            await tg_client.send_message(event.chat_id, f"**Gemini:** {response.text}")
         except Exception as e:
-            print(f"Ошибка Gemini: {e}")
+            print(f"Ошибка: {e}")
+            await tg_client.send_message(event.chat_id, f"⚠️ Ошибка: {str(e)}")
 
-async def main():
-    await client.start()
-    print("--- БОТ В СЕТИ ---")
-    await client.run_until_disconnected()
+async def start():
+    await tg_client.start()
+    print("--- АВТОРИЗАЦИЯ УСПЕШНА ---")
+    await tg_client.run_until_disconnected()
 
 if __name__ == '__main__':
-    asyncio.run(main())
+    asyncio.run(start())
     
