@@ -4,67 +4,51 @@ import google.generativeai as genai
 from telethon import TelegramClient, events
 from telethon.sessions import StringSession
 
-# --- ЧИТАЕМ СЕКРЕТЫ ---
-# Используем .get() и .strip(), чтобы избежать ошибок из-за пробелов
+# Считываем переменные
 API_ID_STR = os.getenv("TG_API_ID", "").strip()
 API_HASH = os.getenv("TG_API_HASH", "").strip()
 SESSION_STR = os.getenv("STRING_SESSION", "").strip()
 GEMINI_KEY = os.getenv("GEMINI_API_KEY", "").strip()
 
-if not all([API_ID_STR, API_HASH, SESSION_STR, GEMINI_KEY]):
-    print("Ошибка: Один из секретов GitHub не заполнен!")
-    exit(1)
-
-API_ID = int(API_ID_STR)
-
-# --- НАСТРОЙКА ИИ ---
+# Настройка ИИ
 genai.configure(api_key=GEMINI_KEY)
 model = genai.GenerativeModel('gemini-1.5-flash')
 
-# Создаем клиент
-client = TelegramClient(StringSession(SESSION_STR), API_ID, API_HASH)
+client = TelegramClient(StringSession(SESSION_STR), int(API_ID_STR), API_HASH)
 
-# Переменная состояния режима разговора
 is_talk_mode = False
 
-print("Бот запускается...")
+print("--- БОТ ЗАПУСКАЕТСЯ ---")
 
-# Команда включения (регистронезависимая)
-@client.on(events.NewMessage(pattern=r'(?i)\.talk$', outgoing=True))
-async def talk_on(event):
-    global is_talk_mode
-    is_talk_mode = True
-    await event.edit("🤖 **Режим разговора ВКЛЮЧЕН.**\nТеперь я буду отвечать на твои сообщения.")
-
-# Команда выключения
-@client.on(events.NewMessage(pattern=r'(?i)\.talkoff$', outgoing=True))
-async def talk_off(event):
-    global is_talk_mode
-    is_talk_mode = False
-    await event.edit("🔇 **Режим разговора ВЫКЛЮЧЕН.**")
-
-# Обработка обычных сообщений
 @client.on(events.NewMessage(outgoing=True))
-async def chat_handler(event):
+async def handler(event):
     global is_talk_mode
-    
-    # Если это команда (начинается с точки) — ничего не делаем
-    if event.text.startswith('.'):
+    text = event.raw_text
+    print(f"Вижу сообщение: {text}") # Это появится в логах GitHub
+
+    # Команда включения
+    if text.lower() == ".talk":
+        is_talk_mode = True
+        await event.edit("🤖 **ИИ включен**")
         return
 
-    # Если режим разговора включен
-    if is_talk_mode:
+    # Команда выключения
+    if text.lower() == ".talkoff":
+        is_talk_mode = False
+        await event.edit("🔇 **ИИ выключен**")
+        return
+
+    # Если режим включен и это не команда
+    if is_talk_mode and not text.startswith("."):
         try:
-            # Отправляем запрос в Gemini
-            response = model.generate_content(event.text)
-            # Отвечаем новым сообщением
+            response = model.generate_content(text)
             await client.send_message(event.chat_id, f"**Gemini:** {response.text}")
         except Exception as e:
-            print(f"Ошибка ИИ: {e}")
+            print(f"Ошибка Gemini: {e}")
 
 async def main():
     await client.start()
-    print("Бот успешно авторизован и работает!")
+    print("--- БОТ В СЕТИ ---")
     await client.run_until_disconnected()
 
 if __name__ == '__main__':
